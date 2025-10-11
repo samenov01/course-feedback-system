@@ -1,4 +1,4 @@
-export default function Navbar({ currentPage, setPage }) {
+export default function Navbar({ currentPage, setPage, authed, userEmail, onLogout }) {
   const Link = ({ name, page }) => (
     <button
       onClick={() => setPage(page)}
@@ -15,17 +15,30 @@ export default function Navbar({ currentPage, setPage }) {
 
   return (
     <nav className="flex justify-between items-center px-8 py-4 border-b border-sky/30 bg-white shadow-sm">
-      {/* Левая часть */}
       <div className="flex space-x-6">
         <Link name="Courses" page="courses" />
         <Link name="Feedback" page="feedback" />
       </div>
 
-      {/* Правая часть */}
-      <div className="flex space-x-6">
-        <Link name="Login" page="login" />
-        <Link name="Register" page="register" />
+      <div className="flex items-center space-x-6">
+        {!authed ? (
+          <>
+            <Link name="Login" page="login" />
+            <Link name="Register" page="register" />
+          </>
+        ) : (
+          <>
+            <span className="text-sm text-dark/70">{userEmail}</span>
+            <button
+              onClick={onLogout}
+              className="text-sm text-white bg-sky px-3 py-1 rounded hover:bg-sky/80"
+            >
+              Logout
+            </button>
+          </>
+        )}
       </div>
     </nav>
   );
 }
+

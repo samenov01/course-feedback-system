@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { api } from "../lib/api";
+import StarRating from "../components/StarRating";
 
-export default function Feedback() {
-  const [course, setCourse] = useState("");
+export default function Feedback({ course, onBack, token }) {
+  const courseName = course?.name ?? "";
+  const courseId = course?.id ?? null;
   const [comment, setComment] = useState("");
   const [rating, setRating] = useState(5);
   const [status, setStatus] = useState("");
@@ -11,17 +14,15 @@ export default function Feedback() {
     setStatus("Sending...");
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ course, comment, rating }),
-      });
-
-      const data = await res.json();
-      setStatus(data.message);
-      setCourse("");
+      const data = await api.post(
+        "/api/feedback",
+        { courseId, comment, rating },
+        token
+      );
+      setStatus(data.message || "Feedback received");
       setComment("");
       setRating(5);
+      if (onBack) onBack();
     } catch (err) {
       console.error(err);
       setStatus("Error sending feedback");
@@ -29,40 +30,50 @@ export default function Feedback() {
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4 text-sky">Submit Feedback</h1>
-      <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
-        <input
-          type="text"
-          value={course}
-          onChange={(e) => setCourse(e.target.value)}
-          placeholder="Course name"
-          required
-          className="w-full border border-sky/40 p-2 rounded focus:border-sky outline-none"
-        />
-        <textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Your feedback..."
-          required
-          className="w-full border border-sky/40 p-2 rounded h-24 focus:border-sky outline-none"
-        />
-        <input
-          type="number"
-          min="1"
-          max="10"
-          value={rating}
-          onChange={(e) => setRating(e.target.value)}
-          className="w-full border border-sky/40 p-2 rounded focus:border-sky outline-none"
-        />
-        <button
-          type="submit"
-          className="bg-sky text-white px-4 py-2 rounded hover:bg-sky/80 transition"
-        >
-          Send
-        </button>
-      </form>
-      {status && <p className="mt-4 text-dark">{status}</p>}
+    <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6 bg-white">
+      <div className="w-full max-w-xl bg-white border border-sky/20 rounded-xl shadow-sm p-6">
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <h1 className="text-2xl font-bold text-sky">Submit Feedback</h1>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-sm text-sky hover:text-sky/80"
+            >
+              ← Back
+            </button>
+          )}
+        </div>
+        {courseName && (
+          <p className="mb-4 text-dark/80">
+            For course: <span className="font-semibold">{courseName}</span>
+          </p>
+        )}
+        {!courseName && <p className="mb-4 text-red-600">No course selected.</p>}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label className="block text-sm text-dark/70 mb-2">Your rating</label>
+            <StarRating value={rating} onChange={setRating} max={10} />
+          </div>
+          <div>
+            <label className="block text-sm text-dark/70 mb-2">Your feedback</label>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Write your thoughts..."
+              required
+              className="w-full border border-sky/30 p-3 rounded-lg h-28 focus:border-sky outline-none"
+            />
+          </div>
+          <button
+            type="submit"
+            className="bg-sky text-white px-4 py-2 rounded-lg hover:bg-sky/80 transition"
+          >
+            Send Feedback
+          </button>
+        </form>
+        {status && <p className="mt-4 text-dark">{status}</p>}
+      </div>
     </div>
   );
 }
