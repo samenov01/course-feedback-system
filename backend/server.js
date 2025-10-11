@@ -2,8 +2,11 @@ import express from "express";
 import cors from "cors";
 import mysql from "mysql2";
 import dotenv from "dotenv";
+import crypto from "crypto";
+
 dotenv.config();
 
+// Optional MySQL connection (not used yet). Keeps future MySQL migration easy.
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -11,48 +14,158 @@ const db = mysql.createConnection({
   database: process.env.DB_NAME,
 });
 
-db.connect(err => {
-  if (err) console.error("DB error:", err);
-  else console.log("MySQL connected");
+db.connect((err) => {
+  if (err) {
+    console.warn("MySQL not connected (optional for now):", err?.code || err?.message);
+  } else {
+    console.log("MySQL connected");
+  }
 });
-
-
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Пример маршрутов
-app.get("/api/courses", (req, res) => {
-  res.json([
-    { id: 1, name: "Mathematics" },
-    { id: 2, name: "Physics" },
-  ]);
+// Simple in-memory stores (swap with MySQL later)
+const users = new Map(); // email -> { email, passwordHash }
+const sessions = new Map(); // token -> email
+const resetTokens = new Map(); // token -> email
+
+const courses = [
+  { id: 1, name: "Mathematics" },
+  { id: 2, name: "Physics" },
+];
+
+// Start with no example feedbacks; lists will populate as users submit
+const feedbacks = {};
+let nextFeedbackId = 1;
+
+const APP_SECRET = process.env.APP_SECRET || "dev-secret";
+const ALLOWED_EMAIL_DOMAINS = (process.env.ALLOWED_EMAIL_DOMAINS || "gmail.com,mail.ru")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+function hashPassword(password) {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+function createToken(email) {
+  const nonce = crypto.randomBytes(12).toString("hex");
+  const data = `${email}.${Date.now()}.${nonce}`;
+  const sig = crypto.createHmac("sha256", APP_SECRET).update(data).digest("hex");
+  return `${data}.${sig}`;
+}
+
+function verifyToken(token) {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length < 4) return null;
+  const [email, ts, nonce, sig] = [parts[0], parts[1], parts[2], parts[3]];
+  const data = `${email}.${ts}.${nonce}`;
+  const expected = crypto.createHmac("sha256", APP_SECRET).update(data).digest("hex");
+  if (sig !== expected) return null;
+  return email;
+}
+
+function authMiddleware(req, _res, next) {
+  const auth = req.headers["authorization"] || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  const email = verifyToken(token) || sessions.get(token) || null;
+  if (email) req.user = { email };
+  next();
+}
+
+app.use(authMiddleware);
+
+// Courses
+app.get("/api/courses", (_req, res) => {
+  res.json(courses);
 });
 
-// Мок-отзывы по id курса
-const feedbacks = {
-  1: [
-    { id: 1, comment: "Great course!", rating: 9 },
-    { id: 2, comment: "Challenging but useful.", rating: 8 },
-  ],
-  2: [
-    { id: 3, comment: "Too theoretical.", rating: 6 },
-    { id: 4, comment: "Loved the experiments!", rating: 10 },
-  ],
-};
-
-// Получить отзывы по ID курса
+// Feedback list by course
 app.get("/api/courses/:id/feedback", (req, res) => {
   const { id } = req.params;
   res.json(feedbacks[id] || []);
 });
 
+// Submit feedback
 app.post("/api/feedback", (req, res) => {
-  console.log("Feedback:", req.body);
-  res.json({ message: "Feedback received" });
+  const { courseId, comment, rating } = req.body || {};
+  if (!courseId || !comment || typeof rating !== "number") {
+    return res.status(400).json({ message: "Invalid payload" });
+  }
+  const list = feedbacks[courseId] || (feedbacks[courseId] = []);
+  const entry = {
+    id: nextFeedbackId++,
+    comment,
+    rating,
+    user: req.user?.email || "anonymous",
+  };
+  list.push(entry);
+  return res.json({ message: "Feedback received", feedback: entry });
 });
 
+// Auth endpoints
+app.post("/api/auth/register", (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+  const domain = String(email).split("@")[1]?.toLowerCase();
+  if (!domain || !ALLOWED_EMAIL_DOMAINS.includes(domain)) {
+    return res.status(400).json({ message: "Email domain not allowed" });
+  }
+  if (users.has(email)) return res.status(409).json({ message: "User already exists" });
+  const passwordHash = hashPassword(password);
+  users.set(email, { email, passwordHash });
+  const token = createToken(email);
+  sessions.set(token, email);
+  return res.json({ token, user: { email } });
+});
 
-const PORT = 5000;
-app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+  const rec = users.get(email);
+  if (!rec || rec.passwordHash !== hashPassword(password)) return res.status(401).json({ message: "Invalid credentials" });
+  const token = createToken(email);
+  sessions.set(token, email);
+  return res.json({ token, user: { email } });
+});
+
+app.get("/api/me", (req, res) => {
+  if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+  return res.json({ user: { email: req.user.email } });
+});
+
+// Forgot/reset password
+app.post("/api/auth/forgot-password", (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ message: "Email required" });
+  if (!users.has(email)) {
+    // respond with generic message to avoid user enumeration
+    return res.json({ message: "If the email exists, a reset token was generated" });
+  }
+  const token = crypto.randomBytes(16).toString("hex");
+  resetTokens.set(token, email);
+  // For this dev setup, return the token so you can use it directly
+  return res.json({ message: "Reset token generated", token });
+});
+
+app.post("/api/auth/reset-password", (req, res) => {
+  const { token, newPassword } = req.body || {};
+  if (!token || !newPassword) return res.status(400).json({ message: "Token and new password required" });
+  const email = resetTokens.get(token);
+  if (!email || !users.has(email)) return res.status(400).json({ message: "Invalid or expired token" });
+  const rec = users.get(email);
+  rec.passwordHash = hashPassword(newPassword);
+  users.set(email, rec);
+  resetTokens.delete(token);
+  return res.json({ message: "Password updated" });
+});
+
+const PORT = process.env.PORT || 5000;
+if (process.env.NODE_ENV !== "test") {
+  app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
+}
+
+export default app;
