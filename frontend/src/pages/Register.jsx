@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api";
+import PosterLayout from "../components/PosterLayout";
 
 export default function Register({ onRegister }) {
   const [email, setEmail] = useState("");
@@ -35,13 +36,14 @@ export default function Register({ onRegister }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white p-6">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white border border-sky/20 shadow-sm p-8 rounded-2xl w-full max-w-md"
-      >
-        <h1 className="text-3xl font-bold text-sky text-center mb-2">Create account</h1>
-        <p className="text-center text-dark/60 mb-6">Join with a supported email</p>
+    <PosterLayout titleLarge="REGISTER" rightLabel="COURSE FEEDBACK">
+      <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white border border-sky/20 shadow-sm p-8 rounded-2xl w-full max-w-md ani-fade-up"
+        >
+          <h1 className="text-3xl font-bold text-sky text-center mb-2">Create account</h1>
+          <p className="text-center text-dark/60 mb-6">Join with a supported email</p>
         <input
           type="email"
           placeholder="Email"
@@ -66,8 +68,9 @@ export default function Register({ onRegister }) {
           {loading ? "Creating account..." : "Sign Up"}
         </button>
         {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
-        <p className="text-center text-dark/60 text-sm mt-3">Use gmail.com or mail.ru</p>
-      </form>
-    </div>
+          <p className="text-center text-dark/60 text-sm mt-3">Use gmail.com or mail.ru</p>
+        </form>
+      </div>
+    </PosterLayout>
   );
 }

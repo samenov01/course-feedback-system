@@ -14,10 +14,11 @@ export default function Navbar({ currentPage, setPage, authed, userEmail, onLogo
   );
 
   return (
-    <nav className="flex justify-between items-center px-8 py-4 border-b border-sky/30 bg-white shadow-sm">
+    <nav className="flex justify-between items-center px-8 py-4 border-b border-sky/20 bg-white/80 backdrop-blur shadow-sm rounded-b-xl">
       <div className="flex space-x-6">
         <Link name="Courses" page="courses" />
         <Link name="Feedback" page="feedback" />
+        <Link name="Admin" page="admin" />
       </div>
 
       <div className="flex items-center space-x-6">
@@ -41,4 +42,3 @@ export default function Navbar({ currentPage, setPage, authed, userEmail, onLogo
     </nav>
   );
 }
-

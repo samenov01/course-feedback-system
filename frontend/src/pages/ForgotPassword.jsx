@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api";
+import PosterLayout from "../components/PosterLayout";
 
 export default function ForgotPassword({ onDone }) {
   const [email, setEmail] = useState("");
@@ -39,9 +40,10 @@ export default function ForgotPassword({ onDone }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white p-6">
-      <div className="bg-white border border-sky/20 shadow-sm p-8 rounded-2xl w-full max-w-lg">
-        <h1 className="text-3xl font-bold text-sky text-center mb-6">Forgot password</h1>
+    <PosterLayout titleLarge="RESET" rightLabel="PASSWORD">
+      <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
+        <div className="bg-white border border-sky/20 shadow-sm p-8 rounded-2xl w-full max-w-lg ani-fade-up">
+          <h1 className="text-3xl font-bold text-sky text-center mb-6">Forgot password</h1>
 
         <form onSubmit={requestToken} className="space-y-3 mb-6">
           <label className="block text-sm text-dark/70">Your email</label>
@@ -90,17 +92,17 @@ export default function ForgotPassword({ onDone }) {
           </button>
         </form>
 
-        {message && <p className="mt-4 text-center text-dark">{message}</p>}
-        <div className="text-center mt-4">
-          <button
-            className="text-sky hover:text-sky/80 text-sm"
-            onClick={() => (window.__setPage ? window.__setPage("login") : null)}
-          >
-            Back to login
-          </button>
+          {message && <p className="mt-4 text-center text-dark">{message}</p>}
+          <div className="text-center mt-4">
+            <button
+              className="text-sky hover:text-sky/80 text-sm"
+              onClick={() => (window.__setPage ? window.__setPage("login") : null)}
+            >
+              Back to login
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </PosterLayout>
   );
 }
-
