@@ -18,6 +18,7 @@ export default function Navbar({ currentPage, setPage, authed, userEmail, onLogo
       <div className="flex space-x-6">
         <Link name="Courses" page="courses" />
         <Link name="Feedback" page="feedback" />
+        <Link name="Admin" page="admin" />
       </div>
 
       <div className="flex items-center space-x-6">

@@ -42,7 +42,7 @@ export default function ForgotPassword({ onDone }) {
   return (
     <PosterLayout titleLarge="RESET" rightLabel="PASSWORD">
       <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
-        <div className="bg-white border border-sky/20 shadow-sm p-8 rounded-2xl w-full max-w-lg">
+        <div className="bg-white border border-sky/20 shadow-sm p-8 rounded-2xl w-full max-w-lg ani-fade-up">
           <h1 className="text-3xl font-bold text-sky text-center mb-6">Forgot password</h1>
 
         <form onSubmit={requestToken} className="space-y-3 mb-6">

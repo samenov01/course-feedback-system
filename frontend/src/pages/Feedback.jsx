@@ -31,7 +31,7 @@ export default function Feedback({ course, onBack, token }) {
   return (
     <PosterLayout titleLarge="FEEDBACK" rightLabel="COURSE">
       <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
-        <div className="w-full max-w-xl bg-white border border-sky/20 rounded-xl shadow-sm p-6">
+        <div className="w-full max-w-xl bg-white border border-sky/20 rounded-xl shadow-sm p-6 ani-fade-up">
           <div className="flex items-center justify-between gap-4 mb-4">
             <h1 className="text-2xl font-bold text-sky">Submit Feedback</h1>
             {onBack && (

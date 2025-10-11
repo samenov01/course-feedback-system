@@ -5,6 +5,7 @@ import Feedback from "./pages/Feedback";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
+import Admin from "./pages/Admin";
 import { api } from "./lib/api";
 
 export default function App() {
@@ -80,6 +81,7 @@ export default function App() {
         {page === "forgot" && (
           <ForgotPassword onDone={() => setPage("login")} />
         )}
+        {page === "admin" && <Admin />}
       </main>
     </div>
   );
