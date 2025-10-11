@@ -14,11 +14,35 @@ const db = mysql.createConnection({
   database: process.env.DB_NAME,
 });
 
+let dbReady = false;
+async function initSchema() {
+  try {
+    const p = db.promise();
+    await p.query(`CREATE TABLE IF NOT EXISTS feedbacks (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      courseId INT NOT NULL,
+      comment TEXT NOT NULL,
+      rating DECIMAL(3,1) NOT NULL,
+      userEmail VARCHAR(255),
+      teacher VARCHAR(255),
+      grp VARCHAR(255),
+      lang VARCHAR(16),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+    dbReady = true;
+    console.log("MySQL schema ready");
+  } catch (e) {
+    dbReady = false;
+    console.warn("MySQL schema init failed:", e?.code || e?.message);
+  }
+}
+
 db.connect((err) => {
   if (err) {
     console.warn("MySQL not connected (optional for now):", err?.code || err?.message);
   } else {
     console.log("MySQL connected");
+    initSchema();
   }
 });
 
@@ -76,7 +100,7 @@ const courses = [
   },
 ];
 
-// Start with no example feedbacks; lists will populate as users submit
+// In-memory fallback store when DB is unavailable
 const feedbacks = {};
 let nextFeedbackId = 1;
 
@@ -133,23 +157,59 @@ app.get("/api/courses", (_req, res) => {
 });
 
 // Feedback list by course
-app.get("/api/courses/:id/feedback", (req, res) => {
+app.get("/api/courses/:id/feedback", async (req, res) => {
   const { id } = req.params;
-  res.json(feedbacks[id] || []);
+  if (dbReady) {
+    try {
+      const [rows] = await db.promise().execute(
+        `SELECT id, comment, rating, userEmail AS user, teacher, grp AS \`group\`, lang
+         FROM feedbacks WHERE courseId = ? ORDER BY created_at DESC`,
+        [id]
+      );
+      return res.json(rows);
+    } catch (e) {
+      console.warn("DB read failed, falling back to memory:", e?.message);
+    }
+  }
+  return res.json(feedbacks[id] || []);
 });
 
 // Submit feedback
-app.post("/api/feedback", (req, res) => {
+app.post("/api/feedback", async (req, res) => {
   const { courseId, comment, rating, teacher, group, lang } = req.body || {};
   if (!courseId || !comment || typeof rating !== "number") {
     return res.status(400).json({ message: "Invalid payload" });
+  }
+  const userEmail = req.user?.email || "anonymous";
+  if (dbReady) {
+    try {
+      const [result] = await db
+        .promise()
+        .execute(
+          `INSERT INTO feedbacks (courseId, comment, rating, userEmail, teacher, grp, lang)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [courseId, comment, Number(rating), userEmail, teacher || null, group || null, lang || null]
+        );
+      const entry = {
+        id: result.insertId,
+        comment,
+        rating: Number(rating),
+        user: userEmail,
+        teacher: teacher || null,
+        group: group || null,
+        lang: lang || null,
+      };
+      return res.json({ message: "Feedback received", feedback: entry });
+    } catch (e) {
+      console.warn("DB write failed, falling back to memory:", e?.message);
+    }
   }
   const list = feedbacks[courseId] || (feedbacks[courseId] = []);
   const entry = {
     id: nextFeedbackId++,
     comment,
     rating,
-    user: req.user?.email || "anonymous",
+    user: userEmail,
     teacher: teacher || null,
     group: group || null,
     lang: lang || null,
@@ -201,11 +261,33 @@ app.post("/api/admin/login", (req, res) => {
 });
 
 // Admin feedback management
-app.get("/api/admin/feedbacks", adminOnly, (req, res) => {
+app.get("/api/admin/feedbacks", adminOnly, async (req, res) => {
   const courseId = req.query.courseId;
-  if (courseId) {
-    return res.json(feedbacks[courseId] || []);
+  if (dbReady) {
+    try {
+      if (courseId) {
+        const [rows] = await db
+          .promise()
+          .execute(
+            `SELECT id, courseId, comment, rating, userEmail AS user, teacher, grp AS \`group\`, lang
+             FROM feedbacks WHERE courseId = ? ORDER BY created_at DESC`,
+            [courseId]
+          );
+        return res.json(rows);
+      } else {
+        const [rows] = await db
+          .promise()
+          .query(
+            `SELECT id, courseId, comment, rating, userEmail AS user, teacher, grp AS \`group\`, lang
+             FROM feedbacks ORDER BY created_at DESC`
+          );
+        return res.json(rows);
+      }
+    } catch (e) {
+      console.warn("DB admin list failed, using memory:", e?.message);
+    }
   }
+  if (courseId) return res.json(feedbacks[courseId] || []);
   const all = [];
   for (const [cid, list] of Object.entries(feedbacks)) {
     for (const f of list) all.push({ courseId: Number(cid), ...f });
@@ -213,20 +295,53 @@ app.get("/api/admin/feedbacks", adminOnly, (req, res) => {
   return res.json(all);
 });
 
-app.patch("/api/admin/courses/:courseId/feedback/:id", adminOnly, (req, res) => {
+app.patch("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, res) => {
   const { courseId, id } = req.params;
+  const patch = req.body || {};
+  if (dbReady) {
+    try {
+      const fields = [];
+      const params = [];
+      if (patch.comment !== undefined) { fields.push("comment = ?"); params.push(patch.comment); }
+      if (patch.rating !== undefined)  { fields.push("rating = ?");  params.push(Number(patch.rating)); }
+      if (patch.teacher !== undefined) { fields.push("teacher = ?"); params.push(patch.teacher || null); }
+      if (patch.group !== undefined)   { fields.push("grp = ?");     params.push(patch.group || null); }
+      if (patch.lang !== undefined)    { fields.push("lang = ?");    params.push(patch.lang || null); }
+      if (!fields.length) return res.json({ ok: true });
+      params.push(id, courseId);
+      await db
+        .promise()
+        .execute(`UPDATE feedbacks SET ${fields.join(", ")} WHERE id = ? AND courseId = ?`, params);
+      const [rows] = await db
+        .promise()
+        .execute(
+          `SELECT id, courseId, comment, rating, userEmail AS user, teacher, grp AS \`group\`, lang FROM feedbacks WHERE id = ? AND courseId = ?`,
+          [id, courseId]
+        );
+      return res.json(rows[0] || { ok: true });
+    } catch (e) {
+      console.warn("DB admin patch failed, using memory:", e?.message);
+    }
+  }
   const list = feedbacks[courseId];
   if (!list) return res.status(404).json({ message: "Course or feedback not found" });
   const idx = list.findIndex((f) => String(f.id) === String(id));
   if (idx === -1) return res.status(404).json({ message: "Feedback not found" });
-  const patch = req.body || {};
   const updated = { ...list[idx], ...patch };
   list[idx] = updated;
   return res.json(updated);
 });
 
-app.delete("/api/admin/courses/:courseId/feedback/:id", adminOnly, (req, res) => {
+app.delete("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, res) => {
   const { courseId, id } = req.params;
+  if (dbReady) {
+    try {
+      await db.promise().execute(`DELETE FROM feedbacks WHERE id = ? AND courseId = ?`, [id, courseId]);
+      return res.json({ ok: true });
+    } catch (e) {
+      console.warn("DB admin delete failed, using memory:", e?.message);
+    }
+  }
   const list = feedbacks[courseId];
   if (!list) return res.status(404).json({ message: "Course or feedback not found" });
   const idx = list.findIndex((f) => String(f.id) === String(id));
