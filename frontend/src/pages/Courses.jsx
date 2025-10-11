@@ -8,6 +8,12 @@ export default function Courses({ onSelectCourse }) {
   const [choice, setChoice] = useState({}); // courseId -> { teacher, group, lang }
   const [search, setSearch] = useState("");
   const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
+  const [sortMode, setSortMode] = useState("az");
+
+  const collator = useMemo(
+    () => new Intl.Collator(["ru", "kk", "en"], { sensitivity: "base", numeric: true }),
+    []
+  );
 
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL}/api/courses`)
@@ -92,6 +98,13 @@ export default function Courses({ onSelectCourse }) {
     return courses.filter((c) => c.name.toLowerCase().includes(q));
   }, [search, courses]);
 
+  const sortedFeedbacks = useMemo(() => {
+    const arr = [...feedbacks];
+    if (sortMode === "az") arr.sort((a, b) => collator.compare(a?.comment || "", b?.comment || ""));
+    else if (sortMode === "za") arr.sort((a, b) => collator.compare(b?.comment || "", a?.comment || ""));
+    return arr;
+  }, [feedbacks, sortMode, collator]);
+
   return (
     <PosterLayout titleLarge="COURSES" rightLabel="FEEDBACK">
       <div className="p-6">
@@ -149,7 +162,17 @@ export default function Courses({ onSelectCourse }) {
           <div className="border-l border-sky/20 pl-6 ani-slide-in-right">
             {selected ? (
               <>
-                <h2 className="text-xl font-semibold mb-2">Отзывы</h2>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-xl font-semibold">Отзывы</h2>
+                  <select
+                    className="border border-sky/30 rounded px-2 py-1 bg-white text-sm"
+                    value={sortMode}
+                    onChange={(e) => setSortMode(e.target.value)}
+                  >
+                    <option value="az">А→Я</option>
+                    <option value="za">Я→А</option>
+                  </select>
+                </div>
                 {loadingFeedbacks ? (
                   <ul className="space-y-3">
                     {Array.from({ length: 3 }).map((_, i) => (
@@ -161,7 +184,7 @@ export default function Courses({ onSelectCourse }) {
                   </ul>
                 ) : feedbacks.length ? (
                   <ul className="space-y-2">
-                    {feedbacks.map((f) => (
+                    {sortedFeedbacks.map((f) => (
                       <li key={f.id} className="border-b border-sky/10 pb-2">
                         <p className="text-dark">{f.comment}</p>
                         <p className="text-sm text-sky">
