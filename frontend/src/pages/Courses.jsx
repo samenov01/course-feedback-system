@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import PosterLayout from "../components/PosterLayout";
 
 export default function Courses({ onSelectCourse }) {
   const [courses, setCourses] = useState([]);
@@ -76,7 +77,8 @@ export default function Courses({ onSelectCourse }) {
   };
 
   return (
-    <div className="p-6">
+    <PosterLayout titleLarge="COURSES" rightLabel="FEEDBACK">
+      <div className="p-6">
       <h1 className="text-2xl font-bold mb-4 text-sky">Courses</h1>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -141,6 +143,7 @@ export default function Courses({ onSelectCourse }) {
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </PosterLayout>
   );
 }

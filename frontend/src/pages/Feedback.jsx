@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../lib/api";
 import StarRating from "../components/StarRating";
+import PosterLayout from "../components/PosterLayout";
 
 export default function Feedback({ course, onBack, token }) {
   const courseName = course?.name ?? "";
@@ -28,20 +29,21 @@ export default function Feedback({ course, onBack, token }) {
   };
 
   return (
-    <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6 bg-white">
-      <div className="w-full max-w-xl bg-white border border-sky/20 rounded-xl shadow-sm p-6">
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <h1 className="text-2xl font-bold text-sky">Submit Feedback</h1>
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="text-sm text-sky hover:text-sky/80"
-            >
-              ← Back
-            </button>
-          )}
-        </div>
+    <PosterLayout titleLarge="FEEDBACK" rightLabel="COURSE">
+      <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
+        <div className="w-full max-w-xl bg-white border border-sky/20 rounded-xl shadow-sm p-6">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <h1 className="text-2xl font-bold text-sky">Submit Feedback</h1>
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="text-sm text-sky hover:text-sky/80"
+              >
+                ← Back
+              </button>
+            )}
+          </div>
         {courseName && (
           <div className="mb-4 text-dark/80">
             <p>
@@ -79,8 +81,9 @@ export default function Feedback({ course, onBack, token }) {
             Send Feedback
           </button>
         </form>
-        {status && <p className="mt-4 text-dark">{status}</p>}
+          {status && <p className="mt-4 text-dark">{status}</p>}
+        </div>
       </div>
-    </div>
+    </PosterLayout>
   );
 }
