@@ -9,6 +9,7 @@ export default function Courses({ onSelectCourse }) {
   const [search, setSearch] = useState("");
   const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
   const [sortMode, setSortMode] = useState("az");
+  const [courseSort, setCourseSort] = useState("az");
 
   const collator = useMemo(
     () => new Intl.Collator(["ru", "kk", "en"], { sensitivity: "base", numeric: true }),
@@ -98,6 +99,13 @@ export default function Courses({ onSelectCourse }) {
     return courses.filter((c) => c.name.toLowerCase().includes(q));
   }, [search, courses]);
 
+  const sortedCourses = useMemo(() => {
+    const arr = [...filtered];
+    if (courseSort === "az") arr.sort((a, b) => collator.compare(a?.name || "", b?.name || ""));
+    else if (courseSort === "za") arr.sort((a, b) => collator.compare(b?.name || "", a?.name || ""));
+    return arr;
+  }, [filtered, courseSort, collator]);
+
   const sortedFeedbacks = useMemo(() => {
     const arr = [...feedbacks];
     if (sortMode === "az") arr.sort((a, b) => collator.compare(a?.comment || "", b?.comment || ""));
@@ -110,19 +118,30 @@ export default function Courses({ onSelectCourse }) {
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold text-sky">Courses</h1>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search course..."
-            className="w-56 md:w-72 border border-sky/30 rounded-lg px-3 py-2 bg-white focus:outline-sky"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search course..."
+              className="w-48 md:w-64 border border-sky/30 rounded-lg px-3 py-2 bg-white focus:outline-sky"
+            />
+            <select
+              className="border border-sky/30 rounded px-2 py-2 bg-white text-sm"
+              value={courseSort}
+              onChange={(e) => setCourseSort(e.target.value)}
+              title="Sort courses"
+            >
+              <option value="az">A→Z</option>
+              <option value="za">Z→A</option>
+            </select>
+          </div>
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
           <div>
             <ul className="space-y-3">
-              {filtered.map((c, idx) => (
+              {sortedCourses.map((c, idx) => (
                 <li key={c.id} style={{ "--d": `${idx * 0.05}s` }} className="card ani-fade-up p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -213,4 +232,3 @@ export default function Courses({ onSelectCourse }) {
     </PosterLayout>
   );
 }
-
