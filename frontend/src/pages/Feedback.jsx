@@ -5,6 +5,7 @@ import StarRating from "../components/StarRating";
 export default function Feedback({ course, onBack, token }) {
   const courseName = course?.name ?? "";
   const courseId = course?.id ?? null;
+  const selection = course?.selection || {};
   const [comment, setComment] = useState("");
   const [rating, setRating] = useState(5);
   const [status, setStatus] = useState("");
@@ -14,11 +15,8 @@ export default function Feedback({ course, onBack, token }) {
     setStatus("Sending...");
 
     try {
-      const data = await api.post(
-        "/api/feedback",
-        { courseId, comment, rating },
-        token
-      );
+      const payload = { courseId, comment, rating, ...selection };
+      const data = await api.post("/api/feedback", payload, token);
       setStatus(data.message || "Feedback received");
       setComment("");
       setRating(5);
@@ -45,9 +43,18 @@ export default function Feedback({ course, onBack, token }) {
           )}
         </div>
         {courseName && (
-          <p className="mb-4 text-dark/80">
-            For course: <span className="font-semibold">{courseName}</span>
-          </p>
+          <div className="mb-4 text-dark/80">
+            <p>
+              Курс: <span className="font-semibold">{courseName}</span>
+            </p>
+            {(selection.teacher || selection.group || selection.lang) && (
+              <p className="text-sm text-dark/70 mt-1">
+                {selection.teacher ? `Преподаватель: ${selection.teacher}` : ""}
+                {selection.group ? `, Группа: ${selection.group}` : ""}
+                {selection.lang ? `, Язык: ${selection.lang}` : ""}
+              </p>
+            )}
+          </div>
         )}
         {!courseName && <p className="mb-4 text-red-600">No course selected.</p>}
         <form onSubmit={handleSubmit} className="space-y-5">

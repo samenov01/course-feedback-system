@@ -32,8 +32,47 @@ const sessions = new Map(); // token -> email
 const resetTokens = new Map(); // token -> email
 
 const courses = [
-  { id: 1, name: "Mathematics" },
-  { id: 2, name: "Physics" },
+  { id: 1, name: "German", teachers: [{ name: "Amanbayev K." }] },
+  {
+    id: 2,
+    name: "Основы экономики, предпринимательства и финансовой грамотности",
+    teachers: [{ name: "Таскинбайкызы Ж." }],
+  },
+  {
+    id: 3,
+    name: "Социология",
+    variants: [
+      { lang: "KZ", teacher: "Дүйсенова С." },
+      { lang: "RUS", teacher: "Каюпова Ф." },
+    ],
+  },
+  {
+    id: 4,
+    name: "English",
+    groups: [
+      { name: "ENG-25-1", teacher: "Essetova K." },
+      { name: "ENG-25-2", teacher: "Essetova K." },
+    ],
+  },
+  { id: 5, name: "Programming", teachers: [{ name: "Байназарова Р." }] },
+  {
+    id: 6,
+    name: "Философия",
+    variants: [
+      { lang: "KZ", teacher: "Абдрахманова Б." },
+      { lang: "RUS", teacher: "Абдрахманова Б." },
+    ],
+  },
+  { id: 7, name: "ИКТ", teachers: [{ name: "Кенжебаева Ж." }] },
+  { id: 8, name: "Математика", teachers: [{ name: "Диярова Л." }] },
+  {
+    id: 9,
+    name: "Политология",
+    variants: [
+      { lang: "KZ", teacher: "Керимов Б." },
+      { lang: "RUS", teacher: "Керимов Б." },
+    ],
+  },
 ];
 
 // Start with no example feedbacks; lists will populate as users submit
@@ -91,7 +130,7 @@ app.get("/api/courses/:id/feedback", (req, res) => {
 
 // Submit feedback
 app.post("/api/feedback", (req, res) => {
-  const { courseId, comment, rating } = req.body || {};
+  const { courseId, comment, rating, teacher, group, lang } = req.body || {};
   if (!courseId || !comment || typeof rating !== "number") {
     return res.status(400).json({ message: "Invalid payload" });
   }
@@ -101,6 +140,9 @@ app.post("/api/feedback", (req, res) => {
     comment,
     rating,
     user: req.user?.email || "anonymous",
+    teacher: teacher || null,
+    group: group || null,
+    lang: lang || null,
   };
   list.push(entry);
   return res.json({ message: "Feedback received", feedback: entry });
