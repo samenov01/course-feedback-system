@@ -3,33 +3,26 @@ import { api } from "../lib/api";
 import PosterLayout from "../components/PosterLayout";
 
 export default function Register({ onRegister }) {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const allowedDomains = ["gmail.com", "mail.ru"];
-
-  const isValidEmailDomain = (em) => {
-    const at = String(em).split("@");
-    if (at.length !== 2) return false;
-    const domain = at[1].toLowerCase();
-    return allowedDomains.includes(domain);
-  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
-    if (!isValidEmailDomain(email)) {
-      setError(`Please use one of: ${allowedDomains.join(", ")}`);
+    if (!name.trim()) {
+      setError("Please enter your name");
       return;
     }
     setLoading(true);
     api
-      .post("/api/auth/register", { email, password })
+      .post("/api/auth/register", { name: name.trim(), email, password })
       .then((data) => {
         onRegister?.(data);
       })
-      .catch(async (err) => {
+      .catch(() => {
         setError("Registration failed. User may already exist.");
       })
       .finally(() => setLoading(false));
@@ -40,16 +33,24 @@ export default function Register({ onRegister }) {
       <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
         <form
           onSubmit={handleSubmit}
-          className="bg-white border border-sky/20 shadow-sm p-8 rounded-2xl w-full max-w-md ani-fade-up"
+          className="card p-8 w-full max-w-md ani-fade-up"
         >
-          <h1 className="text-3xl font-bold text-sky text-center mb-2">Create account</h1>
-          <p className="text-center text-dark/60 mb-6">Join with a supported email</p>
+          <h1 className="text-3xl font-bold text-[#101010] text-center mb-2">Create account</h1>
+          <p className="text-center text-[#101010]/70 mb-6">Join with your email</p>
+        <input
+          type="text"
+          placeholder="Full name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full p-3 border border-[#d1d5db] bg-white text-[#101010] rounded-none mb-3 focus:outline-black"
+          required
+        />
         <input
           type="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full p-3 border border-sky/30 rounded-lg mb-3 focus:outline-sky"
+          className="w-full p-3 border border-[#d1d5db] bg-white text-[#101010] rounded-none mb-3 focus:outline-black"
           required
         />
         <input
@@ -57,18 +58,17 @@ export default function Register({ onRegister }) {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-3 border border-sky/30 rounded-lg mb-4 focus:outline-sky"
+          className="w-full p-3 border border-[#d1d5db] bg-white text-[#101010] rounded-none mb-4 focus:outline-black"
           required
         />
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-sky text-white py-3 rounded-lg hover:bg-sky/80 transition disabled:opacity-60"
+          className="w-full bg-[#101010] text-white py-3 rounded-[2px] hover:opacity-90 transition disabled:opacity-60"
         >
           {loading ? "Creating account..." : "Sign Up"}
         </button>
         {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
-          <p className="text-center text-dark/60 text-sm mt-3">Use gmail.com or mail.ru</p>
         </form>
       </div>
     </PosterLayout>

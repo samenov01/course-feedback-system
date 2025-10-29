@@ -17,7 +17,7 @@ export default function ForgotPassword({ onDone }) {
       const res = await api.post("/api/auth/forgot-password", { email });
       setMessage(res.message || "If the email exists, a token was generated");
       if (res.token) setToken(res.token);
-    } catch (err) {
+    } catch {
       setMessage("Error requesting token");
     } finally {
       setLoading(false);
@@ -32,7 +32,7 @@ export default function ForgotPassword({ onDone }) {
       const res = await api.post("/api/auth/reset-password", { token, newPassword });
       setMessage(res.message || "Password updated");
       if (onDone) onDone();
-    } catch (err) {
+    } catch {
       setMessage("Error resetting password");
     } finally {
       setLoading(false);
@@ -42,8 +42,8 @@ export default function ForgotPassword({ onDone }) {
   return (
     <PosterLayout titleLarge="RESET" rightLabel="PASSWORD">
       <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
-        <div className="bg-white border border-sky/20 shadow-sm p-8 rounded-2xl w-full max-w-lg ani-fade-up">
-          <h1 className="text-3xl font-bold text-sky text-center mb-6">Forgot password</h1>
+        <div className="card p-8 w-full max-w-lg ani-fade-up">
+          <h1 className="text-3xl font-bold text-[#101010] text-center mb-6">Forgot password</h1>
 
         <form onSubmit={requestToken} className="space-y-3 mb-6">
           <label className="block text-sm text-dark/70">Your email</label>
@@ -52,13 +52,13 @@ export default function ForgotPassword({ onDone }) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@gmail.com"
-            className="w-full p-3 border border-sky/30 rounded-lg focus:outline-sky"
+            className="w-full p-3 border border-[#d1d5db] bg-white text-[#101010] rounded-none focus:outline-black"
             required
           />
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-sky text-white py-3 rounded-lg hover:bg-sky/80 transition disabled:opacity-60"
+            className="w-full bg-[#101010] text-white py-3 rounded-[2px] hover:opacity-90 transition disabled:opacity-60"
           >
             {loading ? "Sending..." : "Send reset token"}
           </button>
@@ -71,7 +71,7 @@ export default function ForgotPassword({ onDone }) {
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="Paste token"
-            className="w-full p-3 border border-sky/30 rounded-lg focus:outline-sky"
+            className="w-full p-3 border border-[#d1d5db] bg-white text-[#101010] rounded-none focus:outline-black"
             required
           />
           <label className="block text-sm text-dark/70">New password</label>
@@ -80,13 +80,13 @@ export default function ForgotPassword({ onDone }) {
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             placeholder="New password"
-            className="w-full p-3 border border-sky/30 rounded-lg focus:outline-sky"
+            className="w-full p-3 border border-[#d1d5db] bg-white text-[#101010] rounded-none focus:outline-black"
             required
           />
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-sky text-white py-3 rounded-lg hover:bg-sky/80 transition disabled:opacity-60"
+            className="w-full bg-[#101010] text-white py-3 rounded-[2px] hover:opacity-90 transition disabled:opacity-60"
           >
             {loading ? "Updating..." : "Update password"}
           </button>
@@ -95,7 +95,7 @@ export default function ForgotPassword({ onDone }) {
           {message && <p className="mt-4 text-center text-dark">{message}</p>}
           <div className="text-center mt-4">
             <button
-              className="text-sky hover:text-sky/80 text-sm"
+              className="text-[#101010]/70 hover:text-[#101010] text-sm"
               onClick={() => (window.__setPage ? window.__setPage("login") : null)}
             >
               Back to login
