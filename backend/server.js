@@ -6,15 +6,12 @@ import crypto from "crypto";
 
 dotenv.config();
 
-// Optional MySQL connection (not used yet). Keeps future MySQL migration easy.
-const db = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-});
-
+// Optional MySQL connection (enabled only when DB env vars exist)
+let db = null;
 let dbReady = false;
+const hasDbEnv =
+  !!process.env.DB_HOST && !!process.env.DB_USER && !!process.env.DB_PASSWORD && !!process.env.DB_NAME;
+
 async function initSchema() {
   try {
     const p = db.promise();
@@ -37,14 +34,24 @@ async function initSchema() {
   }
 }
 
-db.connect((err) => {
-  if (err) {
-    console.warn("MySQL not connected (optional for now):", err?.code || err?.message);
-  } else {
-    console.log("MySQL connected");
-    initSchema();
-  }
-});
+if (hasDbEnv) {
+  db = mysql.createConnection({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+  });
+  db.connect((err) => {
+    if (err) {
+      console.warn("MySQL not connected (optional):", err?.code || err?.message);
+    } else {
+      console.log("MySQL connected");
+      initSchema();
+    }
+  });
+} else {
+  console.log("MySQL env not set; using in-memory storage");
+}
 
 const app = express();
 app.use(cors());
@@ -354,6 +361,12 @@ app.delete("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, r
   if (idx === -1) return res.status(404).json({ message: "Feedback not found" });
   list.splice(idx, 1);
   return res.json({ ok: true });
+});
+// Error handler for better diagnostics in serverless logs
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err?.stack || err);
+  res.status(500).json({ message: "Internal error" });
 });
 // Forgot/reset password
 app.post("/api/auth/forgot-password", (req, res) => {
