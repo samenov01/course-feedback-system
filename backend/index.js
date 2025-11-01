@@ -1,13 +1,4 @@
-const express = require('express');
-const cors = require('cors');
+// ESM-совместимый вход: проксируем на server.js
+import app from "./server.js";
 
-const app = express();
-const PORT = 5001;
-
-app.use(cors()); // разрешает фронтенду подключаться
-
-app.get('/ping', (req, res) => {
-  res.send('pong');
-});
-
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+export default app;
