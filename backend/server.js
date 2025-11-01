@@ -51,10 +51,9 @@ app.use(cors());
 app.use(express.json());
 
 // Simple in-memory stores (swap with MySQL later)
-const users = new Map(); // email -> { email, passwordHash }
+const users = new Map(); // email -> { email, passwordHash, name, isAdmin }
 const sessions = new Map(); // token -> email
 const resetTokens = new Map(); // token -> email
-const adminTokens = new Set(); // tokens with admin privileges
 
 const courses = [
   { id: 1, name: "German", teachers: [{ name: "Amanbayev K." }] },
@@ -105,11 +104,7 @@ const feedbacks = {};
 let nextFeedbackId = 1;
 
 const APP_SECRET = process.env.APP_SECRET || "dev-secret";
-const ALLOWED_EMAIL_DOMAINS = (process.env.ALLOWED_EMAIL_DOMAINS || "gmail.com,mail.ru")
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@yu.edu.kz";
 const ADMIN_PASS = process.env.ADMIN_PASS || "admin123";
 
 function hashPassword(password) {
@@ -138,16 +133,21 @@ function authMiddleware(req, _res, next) {
   const auth = req.headers["authorization"] || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   const email = verifyToken(token) || sessions.get(token) || null;
-  if (email) req.user = { email };
+  if (email) {
+    const record = users.get(email);
+    req.user = {
+      email,
+      name: record?.name || null,
+      isAdmin: !!record?.isAdmin,
+    };
+  }
   next();
 }
 
 app.use(authMiddleware);
 
 function adminOnly(req, res, next) {
-  const auth = req.headers["authorization"] || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (token && adminTokens.has(token)) return next();
+  if (req.user?.isAdmin) return next();
   return res.status(401).json({ message: "Admin unauthorized" });
 }
 
@@ -176,11 +176,15 @@ app.get("/api/courses/:id/feedback", async (req, res) => {
 
 // Submit feedback
 app.post("/api/feedback", async (req, res) => {
-  const { courseId, comment, rating, teacher, group, lang } = req.body || {};
+  const { courseId, comment, rating, teacher, group, lang, anonymous } = req.body || {};
   if (!courseId || !comment || typeof rating !== "number") {
     return res.status(400).json({ message: "Invalid payload" });
   }
-  const userEmail = req.user?.email || "anonymous";
+  if (!req.user) {
+    return res.status(401).json({ message: "Login required" });
+  }
+  const fallbackName = req.user?.name || req.user?.email || "Guest";
+  const userLabel = anonymous ? "Anonymous" : fallbackName;
   if (dbReady) {
     try {
       const [result] = await db
@@ -188,13 +192,13 @@ app.post("/api/feedback", async (req, res) => {
         .execute(
           `INSERT INTO feedbacks (courseId, comment, rating, userEmail, teacher, grp, lang)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [courseId, comment, Number(rating), userEmail, teacher || null, group || null, lang || null]
+          [courseId, comment, Number(rating), userLabel, teacher || null, group || null, lang || null]
         );
       const entry = {
         id: result.insertId,
         comment,
         rating: Number(rating),
-        user: userEmail,
+        user: userLabel,
         teacher: teacher || null,
         group: group || null,
         lang: lang || null,
@@ -209,7 +213,7 @@ app.post("/api/feedback", async (req, res) => {
     id: nextFeedbackId++,
     comment,
     rating,
-    user: userEmail,
+    user: userLabel,
     teacher: teacher || null,
     group: group || null,
     lang: lang || null,
@@ -220,45 +224,47 @@ app.post("/api/feedback", async (req, res) => {
 
 // Auth endpoints
 app.post("/api/auth/register", (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ message: "Email and password required" });
-  const domain = String(email).split("@")[1]?.toLowerCase();
-  if (!domain || !ALLOWED_EMAIL_DOMAINS.includes(domain)) {
-    return res.status(400).json({ message: "Email domain not allowed" });
+  const { email, password, name } = req.body || {};
+  const trimmedName = String(name || "").trim();
+  if (!email || !password || !trimmedName) {
+    return res.status(400).json({ message: "Email, password and name are required" });
+  }
+  if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    return res.status(400).json({ message: "Admin account is managed by the system" });
   }
   if (users.has(email)) return res.status(409).json({ message: "User already exists" });
   const passwordHash = hashPassword(password);
-  users.set(email, { email, passwordHash });
+  users.set(email, { email, passwordHash, name: trimmedName, isAdmin: false });
   const token = createToken(email);
   sessions.set(token, email);
-  return res.json({ token, user: { email } });
+  return res.json({ token, user: { email, name: trimmedName, isAdmin: false } });
 });
 
 app.post("/api/auth/login", (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ message: "Email and password required" });
-  const rec = users.get(email);
+  let rec = users.get(email);
+  // bootstrap or refresh admin record if credentials match
+  if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASS) {
+    const passwordHash = hashPassword(password);
+    const existing = users.get(email) || {};
+    rec = { email, passwordHash, name: existing.name || "Admin", isAdmin: true };
+    users.set(email, rec);
+  }
   if (!rec || rec.passwordHash !== hashPassword(password)) return res.status(401).json({ message: "Invalid credentials" });
   const token = createToken(email);
   sessions.set(token, email);
-  return res.json({ token, user: { email } });
+  const displayName = rec.name || email.split("@")[0] || email;
+  return res.json({ token, user: { email, name: displayName, isAdmin: !!rec.isAdmin } });
 });
 
 app.get("/api/me", (req, res) => {
   if (!req.user) return res.status(401).json({ message: "Unauthorized" });
-  return res.json({ user: { email: req.user.email } });
+  const fallbackName = req.user.name || req.user.email.split("@")[0] || req.user.email;
+  return res.json({ user: { email: req.user.email, name: fallbackName, isAdmin: !!req.user.isAdmin } });
 });
 
-// Admin login
-app.post("/api/admin/login", (req, res) => {
-  const { username, password } = req.body || {};
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
-    const token = crypto.randomBytes(24).toString("hex");
-    adminTokens.add(token);
-    return res.json({ token });
-  }
-  return res.status(401).json({ message: "Invalid admin credentials" });
-});
+// Standalone admin login removed; use normal user login with ADMIN_EMAIL/ADMIN_PASS
 
 // Admin feedback management
 app.get("/api/admin/feedbacks", adminOnly, async (req, res) => {

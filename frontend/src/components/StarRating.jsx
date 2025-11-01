@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 
 // 0.5-step star rating component with hover support
-export default function StarRating({ value = 0, onChange, max = 10, size = 24 }) {
+// mode: 'blackSelected' (default) or 'whiteSelected'
+export default function StarRating({ value = 0, onChange, max = 10, size = 24, mode = 'blackSelected' }) {
   const [hover, setHover] = useState(null);
   const refs = useRef([]);
   const display = hover ?? value;
@@ -31,8 +32,8 @@ export default function StarRating({ value = 0, onChange, max = 10, size = 24 })
 
   const Star = ({ kind, idx }) => {
     const id = `grad-${idx}`;
-    const fill = "#3B82F6"; // sky
-    const empty = "#E5E7EB"; // light gray
+    const fill = mode === 'whiteSelected' ? "#FFFFFF" : "#101010";
+    const empty = mode === 'whiteSelected' ? "#101010" : "#D1D5DB";
     return (
       <svg
         width={size}
@@ -57,7 +58,7 @@ export default function StarRating({ value = 0, onChange, max = 10, size = 24 })
 
   return (
     <div className="flex items-center gap-1" onMouseLeave={handleLeave}>
-      {stars.map((s, index) => {
+      {stars.map((s) => {
         const i = s; // 1..max
         const kind = display >= i ? "full" : display >= i - 0.5 ? "half" : "empty";
         return (
@@ -73,7 +74,7 @@ export default function StarRating({ value = 0, onChange, max = 10, size = 24 })
           </span>
         );
       })}
-      <span className="ml-2 text-sm text-dark/70">{display.toFixed(1)}/{max}</span>
+      <span className="ml-2 text-sm text-white/70">{display.toFixed(1)}/{max}</span>
     </div>
   );
 }

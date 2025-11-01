@@ -1,23 +1,30 @@
 @import "tailwindcss";
 
 @theme {
-  --color-sky: #1264ad; /* requested primary */
-  --color-dark: #111827;
+  --color-dark: #101010; /* strict black */
 }
 
-:root {
-  --color-bg: #faf7f2; /* requested background */
-}
+:root { --color-bg: #101010; }
 
 body {
   background: var(--color-bg);
-  color: var(--color-dark);
-  font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  color: #101010; /* default text color (used inside white panels) */
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  font-weight: 500;
 }
 
+h1, h2, h3, h4, h5, h6 { font-weight: 700; }
+.font-bold { font-weight: 700 !important; }
+.font-black { font-weight: 900 !important; }
+
 /* Large background title helper */
-.poster-title {
-  letter-spacing: -0.02em;
+.poster-title { letter-spacing: -0.02em; }
+
+/* Massive outlined title (hero backdrop) */
+.outline-title {
+  color: transparent;
+  -webkit-text-stroke: 2px rgba(255,255,255,0.12);
+  text-stroke: 2px rgba(255,255,255,0.12);
 }
 
 /* Animations */
@@ -36,13 +43,18 @@ body {
 
 /* Minimal card */
 .card {
-  background: white;
-  border: 1px solid color-mix(in oklab, var(--color-sky) 20%, transparent);
-  border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.04);
-  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+  background: #ffffff; /* white blocks */
+  color: #101010;
+  border: 1px solid #e5e5e5;
+  border-radius: 7px; /* requested small rounding for blocks */
+  box-shadow: none;
 }
-.card:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0,0,0,.06); border-color: color-mix(in oklab, var(--color-sky) 35%, transparent); }
+
+/* Scrollbar (monochrome, right side thin) */
+*::-webkit-scrollbar { width: 8px; }
+*::-webkit-scrollbar-track { background: #151515; }
+*::-webkit-scrollbar-thumb { background: #ffffff; border: 2px solid #151515; }
+* { scrollbar-color: #ffffff #151515; scrollbar-width: thin; }
 
 /* Shimmer placeholder */
 .shimmer {
@@ -53,3 +65,17 @@ body {
   animation: shimmer 1.4s ease infinite;
 }
 @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+/* Page flow animation */
+@keyframes page-flow {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ani-page-flow { animation: page-flow .45s ease both; }
+
+/* Decorative dark panel */
+.panel-dark {
+  background: linear-gradient(145deg, #2a2a2a 0%, #222 40%, #1b1b1b 100%);
+  border: 1px solid #2f2f2f;
+  border-radius: 7px;
+}
