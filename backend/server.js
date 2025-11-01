@@ -382,7 +382,8 @@ app.post("/api/auth/reset-password", (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-if (process.env.NODE_ENV !== "test") {
+// Do not call app.listen() on Vercel serverless; export app via api/[...route].js
+if (!process.env.VERCEL && process.env.NODE_ENV !== "test") {
   app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
 }
 
