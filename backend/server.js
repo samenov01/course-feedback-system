@@ -35,11 +35,13 @@ async function initSchema() {
 }
 
 if (hasDbEnv) {
+  const ssl = (process.env.DB_SSL || "").toLowerCase() === "true" ? { rejectUnauthorized: true } : undefined;
   db = mysql.createConnection({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
+    ssl,
   });
   db.connect((err) => {
     if (err) {
