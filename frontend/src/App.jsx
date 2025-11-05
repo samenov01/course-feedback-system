@@ -34,13 +34,14 @@ export default function App() {
   };
 
   const handleRegister = (data) => {
-    // After register, go to login for clarity
+    // Auto-login after successful registration
     if (data?.token) {
-      // Alternatively, auto-login; keeping simple: go to login screen
-      setPage("login");
-    } else {
-      setPage("login");
+      localStorage.setItem("authToken", data.token);
+      setAuth({ token: data.token, user: data.user });
+      setPage("courses");
+      return;
     }
+    setPage("login");
   };
 
   // No separate admin login flow anymore
