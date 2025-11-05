@@ -1,38 +1,32 @@
 import express from "express";
 import cors from "cors";
-import { put, list, del as blobDel } from "@vercel/blob";
+import { MongoClient, ObjectId } from "mongodb";
 import dotenv from "dotenv";
 import crypto from "crypto";
 
 dotenv.config();
 
-// Storage selection: use Vercel Blob when available; fallback to in-memory only (no MySQL)
-// Consider Blob available only if explicit Blob envs exist
-let hasBlob = !!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.VERCEL_BLOB_READ_WRITE_URL;
-
-async function initSchema() {
-  try {
-    const p = db.promise();
-    await p.query(`CREATE TABLE IF NOT EXISTS feedbacks (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      courseId INT NOT NULL,
-      comment TEXT NOT NULL,
-      rating DECIMAL(3,1) NOT NULL,
-      userEmail VARCHAR(255),
-      teacher VARCHAR(255),
-      grp VARCHAR(255),
-      lang VARCHAR(16),
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`);
-    dbReady = true;
-    console.log("MySQL schema ready");
-  } catch (e) {
-    dbReady = false;
-    console.warn("MySQL schema init failed:", e?.code || e?.message);
+// Primary storage: MongoDB (if MONGODB_URI is set), otherwise in-memory fallback
+const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL || "";
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "course_feedback";
+let mongoClient = null;
+let mongoDb = null;
+let mongoReady = false;
+async function getDb() {
+  if (mongoReady && mongoDb) return mongoDb;
+  if (!MONGODB_URI) return null;
+  if (!mongoClient) {
+    mongoClient = new MongoClient(MONGODB_URI, { maxPoolSize: 5 });
   }
+  if (!mongoReady) {
+    await mongoClient.connect();
+    mongoDb = mongoClient.db(MONGODB_DB_NAME);
+    mongoReady = true;
+  }
+  return mongoDb;
 }
 
-console.log(hasBlob ? "Using Vercel Blob for storage" : "Using in-memory storage (dev fallback)");
+console.log(MONGODB_URI ? "Using MongoDB storage" : "Using in-memory storage (dev fallback)");
 
 const app = express();
 app.use(cors());
@@ -87,116 +81,89 @@ const courses = [
   },
 ];
 
-// In-memory fallback store when Blob is not available
+// In-memory fallback store when Mongo is not available
 const feedbacks = {};
 let nextFeedbackId = 1;
 
-// ----- Vercel Blob helpers -----
-const blobPrefix = "feedbacks"; // root folder
-const usersPrefix = "users";
-
-function makeKey(courseId, id) {
-  return `${blobPrefix}/course-${courseId}/${id}.json`;
+// ----- Mongo helpers -----
+function normalizeFeedback(doc) {
+  if (!doc) return null;
+  return {
+    id: String(doc._id || doc.id),
+    courseId: Number(doc.courseId),
+    comment: doc.comment,
+    rating: Number(doc.rating),
+    user: doc.user,
+    teacher: doc.teacher ?? null,
+    group: doc.group ?? null,
+    lang: doc.lang ?? null,
+  };
 }
 
-async function blobReadCourse(courseId) {
-  // List all feedback blobs for the course and fetch JSONs
-  const { blobs } = await list({ prefix: `${blobPrefix}/course-${courseId}/` });
-  if (!blobs?.length) return [];
-  // sort by pathname (id) descending
-  const sorted = blobs
-    .slice()
-    .sort((a, b) => (a.pathname > b.pathname ? -1 : 1));
-  const results = [];
-  for (const b of sorted) {
-    const url = b.url || b.downloadUrl || b.pathname; // SDK exposes .url; fallbacks for safety
-    try {
-      const res = await fetch(url);
-      if (res.ok) {
-        const item = await res.json();
-        results.push(item);
-      }
-    } catch (e) {
-      console.warn("Blob fetch failed for", b.pathname, e?.message);
-    }
-  }
-  return results;
+async function mongoListFeedbacks(courseId) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .collection("feedbacks")
+    .find({ courseId: Number(courseId) })
+    .sort({ createdAt: -1 })
+    .toArray();
+  return rows.map(normalizeFeedback);
 }
 
-async function blobWriteFeedback(courseId, entry) {
-  const key = makeKey(courseId, entry.id);
-  const body = JSON.stringify(entry);
-  await put(key, body, { access: "private", contentType: "application/json" });
-  return key;
+async function mongoInsertFeedback(entry) {
+  const db = await getDb();
+  if (!db) return null;
+  const res = await db.collection("feedbacks").insertOne({ ...entry, createdAt: new Date() });
+  return { ...entry, id: String(res.insertedId) };
 }
 
-async function blobReadOne(courseId, id) {
-  const key = makeKey(courseId, id);
-  try {
-    const { blobs } = await list({ prefix: key });
-    if (!blobs?.length) return null;
-    const url = blobs[0].url || blobs[0].downloadUrl || blobs[0].pathname;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+async function mongoListAllFeedbacks(courseId) {
+  const db = await getDb();
+  if (!db) return null;
+  const cursor = courseId
+    ? db.collection("feedbacks").find({ courseId: Number(courseId) }).sort({ createdAt: -1 })
+    : db.collection("feedbacks").find({}).sort({ createdAt: -1 });
+  const rows = await cursor.toArray();
+  return rows.map(normalizeFeedback);
 }
 
-async function blobUpdate(courseId, id, patch) {
-  const cur = await blobReadOne(courseId, id);
-  if (!cur) return null;
-  const updated = { ...cur, ...patch };
-  await blobWriteFeedback(courseId, updated);
-  return updated;
+async function mongoPatchFeedback(courseId, id, patch) {
+  const db = await getDb();
+  if (!db) return null;
+  const update = {};
+  if (patch.comment !== undefined) update.comment = patch.comment;
+  if (patch.rating !== undefined) update.rating = Number(patch.rating);
+  if (patch.teacher !== undefined) update.teacher = patch.teacher ?? null;
+  if (patch.group !== undefined) update.group = patch.group ?? null;
+  if (patch.lang !== undefined) update.lang = patch.lang ?? null;
+  if (!Object.keys(update).length) return true;
+  const res = await db
+    .collection("feedbacks")
+    .findOneAndUpdate({ _id: new ObjectId(id), courseId: Number(courseId) }, { $set: update }, { returnDocument: "after" });
+  return normalizeFeedback(res.value);
 }
 
-async function blobDelete(courseId, id) {
-  const key = makeKey(courseId, id);
-  try {
-    await blobDel(key);
-    return true;
-  } catch (e) {
-    console.warn("Blob delete failed:", e?.message);
-    return false;
-  }
+async function mongoDeleteFeedback(courseId, id) {
+  const db = await getDb();
+  if (!db) return null;
+  const res = await db.collection("feedbacks").deleteOne({ _id: new ObjectId(id), courseId: Number(courseId) });
+  return res.deletedCount === 1;
 }
 
-// Users in Blob
-function userKey(email) {
-  return `${usersPrefix}/${encodeURIComponent(String(email).toLowerCase())}.json`;
+// Users in Mongo
+async function mongoGetUser(email) {
+  const db = await getDb();
+  if (!db) return null;
+  return db.collection("users").findOne({ email: String(email).toLowerCase() });
 }
 
-async function blobReadUser(email) {
-  const key = userKey(email);
-  const { blobs } = await list({ prefix: key });
-  if (!blobs?.length) return null;
-  const url = blobs[0].url || blobs[0].downloadUrl || blobs[0].pathname;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  return await res.json();
-}
-
-async function blobWriteUser(record) {
-  const key = userKey(record.email);
-  await put(key, JSON.stringify(record), { access: "private", contentType: "application/json" });
-}
-
-// Quick runtime probe for Blob availability (cached)
-let blobProbeDone = false;
-let blobProbeOk = false;
-async function ensureBlob() {
-  if (blobProbeDone) return blobProbeOk;
-  try {
-    await list({ prefix: `${usersPrefix}/`, limit: 1 });
-    blobProbeOk = true;
-  } catch {
-    blobProbeOk = false;
-  }
-  blobProbeDone = true;
-  if (blobProbeOk) hasBlob = true; // flip on if the binding works
-  return blobProbeOk;
+async function mongoUpsertUser(record) {
+  const db = await getDb();
+  if (!db) return null;
+  const email = String(record.email).toLowerCase();
+  await db.collection("users").updateOne({ email }, { $set: { ...record, email } }, { upsert: true });
+  return true;
 }
 
 const APP_SECRET = process.env.APP_SECRET || "dev-secret";
@@ -258,14 +225,12 @@ app.get("/api/courses", (_req, res) => {
 // Feedback list by course
 app.get("/api/courses/:id/feedback", async (req, res) => {
   const { id } = req.params;
-  // Prefer Blob storage
-  if (hasBlob) {
-    try {
-      const list = await blobReadCourse(id);
-      return res.json(list);
-    } catch (e) {
-      console.warn("Blob read failed, falling back:", e?.message);
-    }
+  // Prefer MongoDB storage
+  try {
+    const list = await mongoListFeedbacks(id);
+    if (list) return res.json(list);
+  } catch (e) {
+    console.warn("Mongo read failed, falling back:", e?.message);
   }
   return res.json(feedbacks[id] || []);
 });
@@ -281,25 +246,20 @@ app.post("/api/feedback", async (req, res) => {
   }
   const fallbackName = req.user?.name || req.user?.email || "Guest";
   const userLabel = anonymous ? "Anonymous" : fallbackName;
-  if (hasBlob) {
-    try {
-      // create numeric id monotonic based on time
-      const id = Date.now();
-      const entry = {
-        id,
-        comment,
-        rating: Number(rating),
-        user: userLabel,
-        teacher: teacher || null,
-        group: group || null,
-        lang: lang || null,
-        courseId: Number(courseId),
-      };
-      await blobWriteFeedback(courseId, entry);
-      return res.json({ message: "Feedback received", feedback: entry });
-    } catch (e) {
-      console.warn("Blob write failed, trying fallback:", e?.message);
-    }
+  try {
+    const entry = {
+      courseId: Number(courseId),
+      comment,
+      rating: Number(rating),
+      user: userLabel,
+      teacher: teacher || null,
+      group: group || null,
+      lang: lang || null,
+    };
+    const saved = await mongoInsertFeedback(entry);
+    if (saved) return res.json({ message: "Feedback received", feedback: saved });
+  } catch (e) {
+    console.warn("Mongo write failed, using memory:", e?.message);
   }
   const list = feedbacks[courseId] || (feedbacks[courseId] = []);
   const entry = {
@@ -325,25 +285,18 @@ app.post("/api/auth/register", async (req, res) => {
   if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
     return res.status(400).json({ message: "Admin account is managed by the system" });
   }
-  if (hasBlob || (await ensureBlob())) {
-    try {
-      const exists = await blobReadUser(email);
-      if (exists) return res.status(409).json({ message: "User already exists" });
-      const rec = { email, passwordHash: hashPassword(password), name: trimmedName, isAdmin: false };
-      await blobWriteUser(rec);
-      const token = createToken(email);
-      return res.json({ token, user: { email, name: trimmedName, isAdmin: false } });
-    } catch (e) {
-      console.error("Blob register error:", e?.message);
-      return res.status(500).json({ message: "Storage unavailable. Enable Vercel Blob for this project." });
-    }
-  } else {
-    if (users.has(email)) return res.status(409).json({ message: "User already exists" });
-    const passwordHash = hashPassword(password);
-    users.set(email, { email, passwordHash, name: trimmedName, isAdmin: false });
-    const token = createToken(email);
-    sessions.set(token, email);
-    return res.json({ token, user: { email, name: trimmedName, isAdmin: false } });
+  try {
+    const lower = String(email).toLowerCase();
+    const existing = (await mongoGetUser(lower)) || users.get(lower);
+    if (existing) return res.status(409).json({ message: "User already exists" });
+    const rec = { email: lower, passwordHash: hashPassword(password), name: trimmedName, isAdmin: false };
+    const db = await getDb();
+    if (db) await mongoUpsertUser(rec); else users.set(lower, rec);
+    const token = createToken(lower);
+    return res.json({ token, user: { email: lower, name: trimmedName, isAdmin: false } });
+  } catch (e) {
+    console.error("Register error:", e?.message);
+    return res.status(500).json({ message: "Registration failed" });
   }
 });
 
@@ -354,13 +307,10 @@ app.post("/api/auth/login", async (req, res) => {
   if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASS) {
     const rec = { email, passwordHash: hashPassword(password), name: "Admin", isAdmin: true };
     try {
-      if (hasBlob || (await ensureBlob())) {
-        await blobWriteUser(rec); // ensure user exists in Blob
-      } else {
-        users.set(email, rec);
-      }
+      const db = await getDb();
+      if (db) await mongoUpsertUser(rec); else users.set(email, rec);
     } catch (e) {
-      console.warn("Blob admin sync failed:", e?.message);
+      console.warn("Admin sync failed:", e?.message);
       users.set(email, rec);
     }
     const token = createToken(email);
@@ -370,14 +320,11 @@ app.post("/api/auth/login", async (req, res) => {
   // Normal users
   let rec = null;
   try {
-    if (hasBlob || (await ensureBlob())) {
-      rec = await blobReadUser(email);
-    } else {
-      rec = users.get(email);
-    }
+    const db = await getDb();
+    rec = db ? await mongoGetUser(email) : users.get(email);
   } catch (e) {
-    console.error("Blob read user error:", e?.message);
-    return res.status(500).json({ message: "Storage unavailable. Enable Vercel Blob for this project." });
+    console.error("Mongo read user error:", e?.message);
+    return res.status(500).json({ message: "Login failed" });
   }
   if (!rec || rec.passwordHash !== hashPassword(password)) return res.status(401).json({ message: "Invalid credentials" });
   const token = createToken(email);
@@ -396,32 +343,11 @@ app.get("/api/me", (req, res) => {
 // Admin feedback management
 app.get("/api/admin/feedbacks", adminOnly, async (req, res) => {
   const courseId = req.query.courseId;
-  if (hasBlob) {
-    try {
-      if (courseId) {
-        const listByCourse = await blobReadCourse(courseId);
-        return res.json(listByCourse);
-      } else {
-        // List all courses
-        const { blobs } = await list({ prefix: `${blobPrefix}/` });
-        if (!blobs?.length) return res.json([]);
-        const results = [];
-        for (const b of blobs) {
-          try {
-            const url = b.url || b.downloadUrl || b.pathname;
-            const res2 = await fetch(url);
-            if (res2.ok) results.push(await res2.json());
-          } catch (e) {
-            console.warn("Blob fetch (admin) failed:", b.pathname, e?.message);
-          }
-        }
-        // newest first
-        results.sort((a, b) => (a.id > b.id ? -1 : 1));
-        return res.json(results);
-      }
-    } catch (e) {
-      console.warn("Blob admin list failed, falling back:", e?.message);
-    }
+  try {
+    const list = await mongoListAllFeedbacks(courseId);
+    if (list) return res.json(list);
+  } catch (e) {
+    console.warn("Mongo admin list failed, using memory:", e?.message);
   }
   if (courseId) return res.json(feedbacks[courseId] || []);
   const all = [];
@@ -434,14 +360,11 @@ app.get("/api/admin/feedbacks", adminOnly, async (req, res) => {
 app.patch("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, res) => {
   const { courseId, id } = req.params;
   const patch = req.body || {};
-  if (hasBlob) {
-    try {
-      const updated = await blobUpdate(courseId, id, patch);
-      if (!updated) return res.status(404).json({ message: "Feedback not found" });
-      return res.json(updated);
-    } catch (e) {
-      console.warn("Blob patch failed, falling back:", e?.message);
-    }
+  try {
+    const updated = await mongoPatchFeedback(courseId, id, patch);
+    if (updated) return res.json(updated);
+  } catch (e) {
+    console.warn("Mongo patch failed, falling back:", e?.message);
   }
   const list = feedbacks[courseId];
   if (!list) return res.status(404).json({ message: "Course or feedback not found" });
@@ -454,14 +377,11 @@ app.patch("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, re
 
 app.delete("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, res) => {
   const { courseId, id } = req.params;
-  if (hasBlob) {
-    try {
-      const ok = await blobDelete(courseId, id);
-      if (!ok) return res.status(404).json({ message: "Feedback not found" });
-      return res.json({ ok: true });
-    } catch (e) {
-      console.warn("Blob delete failed, falling back:", e?.message);
-    }
+  try {
+    const ok = await mongoDeleteFeedback(courseId, id);
+    if (ok) return res.json({ ok: true });
+  } catch (e) {
+    console.warn("Mongo delete failed, falling back:", e?.message);
   }
   const list = feedbacks[courseId];
   if (!list) return res.status(404).json({ message: "Course or feedback not found" });
@@ -471,13 +391,13 @@ app.delete("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, r
   return res.json({ ok: true });
 });
 
-// Simple health endpoint for Blob
-app.get("/api/health/blob", async (_req, res) => {
+// Health endpoint for Mongo
+app.get("/api/health/mongo", async (_req, res) => {
   try {
-    const ok = await ensureBlob();
-    return res.json({ ok });
+    const db = await getDb();
+    return res.json({ ok: !!db });
   } catch (e) {
-    return res.status(500).json({ ok: false, message: e?.message || "Blob error" });
+    return res.status(500).json({ ok: false, message: e?.message || "Mongo error" });
   }
 });
 // Error handler for better diagnostics in serverless logs
