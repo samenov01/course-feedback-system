@@ -37,7 +37,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Simple in-memory stores (swap with MySQL later)
+// Simple in-memory stores (fallbacks when Blob недоступен)
 const users = new Map(); // email -> { email, passwordHash, name, isAdmin }
 const sessions = new Map(); // token -> email
 const resetTokens = new Map(); // token -> email
@@ -92,6 +92,7 @@ let nextFeedbackId = 1;
 
 // ----- Vercel Blob helpers -----
 const blobPrefix = "feedbacks"; // root folder
+const usersPrefix = "users";
 
 function makeKey(courseId, id) {
   return `${blobPrefix}/course-${courseId}/${id}.json`;
@@ -161,6 +162,26 @@ async function blobDelete(courseId, id) {
   }
 }
 
+// Users in Blob
+function userKey(email) {
+  return `${usersPrefix}/${encodeURIComponent(String(email).toLowerCase())}.json`;
+}
+
+async function blobReadUser(email) {
+  const key = userKey(email);
+  const { blobs } = await list({ prefix: key });
+  if (!blobs?.length) return null;
+  const url = blobs[0].url || blobs[0].downloadUrl || blobs[0].pathname;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+async function blobWriteUser(record) {
+  const key = userKey(record.email);
+  await put(key, JSON.stringify(record), { access: "private", contentType: "application/json" });
+}
+
 const APP_SECRET = process.env.APP_SECRET || "dev-secret";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@yu.edu.kz";
 const ADMIN_PASS = process.env.ADMIN_PASS || "admin123";
@@ -187,12 +208,15 @@ function verifyToken(token) {
   return email;
 }
 
-function authMiddleware(req, _res, next) {
+async function authMiddleware(req, _res, next) {
   const auth = req.headers["authorization"] || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   const email = verifyToken(token) || sessions.get(token) || null;
   if (email) {
-    const record = users.get(email);
+    let record = users.get(email);
+    if (!record && hasBlob) {
+      try { record = await blobReadUser(email); } catch {}
+    }
     req.user = {
       email,
       name: record?.name || null,
@@ -275,7 +299,7 @@ app.post("/api/feedback", async (req, res) => {
 });
 
 // Auth endpoints
-app.post("/api/auth/register", (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   const { email, password, name } = req.body || {};
   const trimmedName = String(name || "").trim();
   if (!email || !password || !trimmedName) {
@@ -284,28 +308,47 @@ app.post("/api/auth/register", (req, res) => {
   if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
     return res.status(400).json({ message: "Admin account is managed by the system" });
   }
-  if (users.has(email)) return res.status(409).json({ message: "User already exists" });
-  const passwordHash = hashPassword(password);
-  users.set(email, { email, passwordHash, name: trimmedName, isAdmin: false });
-  const token = createToken(email);
-  sessions.set(token, email);
-  return res.json({ token, user: { email, name: trimmedName, isAdmin: false } });
+  if (hasBlob) {
+    const exists = await blobReadUser(email);
+    if (exists) return res.status(409).json({ message: "User already exists" });
+    const rec = { email, passwordHash: hashPassword(password), name: trimmedName, isAdmin: false };
+    await blobWriteUser(rec);
+    const token = createToken(email);
+    return res.json({ token, user: { email, name: trimmedName, isAdmin: false } });
+  } else {
+    if (users.has(email)) return res.status(409).json({ message: "User already exists" });
+    const passwordHash = hashPassword(password);
+    users.set(email, { email, passwordHash, name: trimmedName, isAdmin: false });
+    const token = createToken(email);
+    sessions.set(token, email);
+    return res.json({ token, user: { email, name: trimmedName, isAdmin: false } });
+  }
 });
 
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ message: "Email and password required" });
-  let rec = users.get(email);
-  // bootstrap or refresh admin record if credentials match
+  // Admin bootstrap (always works without existing user)
   if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASS) {
-    const passwordHash = hashPassword(password);
-    const existing = users.get(email) || {};
-    rec = { email, passwordHash, name: existing.name || "Admin", isAdmin: true };
-    users.set(email, rec);
+    const rec = { email, passwordHash: hashPassword(password), name: "Admin", isAdmin: true };
+    if (hasBlob) {
+      await blobWriteUser(rec); // ensure user exists in Blob
+    } else {
+      users.set(email, rec);
+    }
+    const token = createToken(email);
+    const displayName = rec.name || email.split("@")[0] || email;
+    return res.json({ token, user: { email, name: displayName, isAdmin: true } });
+  }
+  // Normal users
+  let rec = null;
+  if (hasBlob) {
+    rec = await blobReadUser(email);
+  } else {
+    rec = users.get(email);
   }
   if (!rec || rec.passwordHash !== hashPassword(password)) return res.status(401).json({ message: "Invalid credentials" });
   const token = createToken(email);
-  sessions.set(token, email);
   const displayName = rec.name || email.split("@")[0] || email;
   return res.json({ token, user: { email, name: displayName, isAdmin: !!rec.isAdmin } });
 });
