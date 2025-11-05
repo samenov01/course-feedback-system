@@ -7,7 +7,8 @@ import crypto from "crypto";
 dotenv.config();
 
 // Storage selection: use Vercel Blob when available; fallback to in-memory only (no MySQL)
-const hasBlob = !!process.env.VERCEL || !!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.VERCEL_BLOB_READ_WRITE_URL;
+// Consider Blob available only if explicit Blob envs exist
+let hasBlob = !!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.VERCEL_BLOB_READ_WRITE_URL;
 
 async function initSchema() {
   try {
@@ -182,6 +183,22 @@ async function blobWriteUser(record) {
   await put(key, JSON.stringify(record), { access: "private", contentType: "application/json" });
 }
 
+// Quick runtime probe for Blob availability (cached)
+let blobProbeDone = false;
+let blobProbeOk = false;
+async function ensureBlob() {
+  if (blobProbeDone) return blobProbeOk;
+  try {
+    await list({ prefix: `${usersPrefix}/`, limit: 1 });
+    blobProbeOk = true;
+  } catch {
+    blobProbeOk = false;
+  }
+  blobProbeDone = true;
+  if (blobProbeOk) hasBlob = true; // flip on if the binding works
+  return blobProbeOk;
+}
+
 const APP_SECRET = process.env.APP_SECRET || "dev-secret";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@yu.edu.kz";
 const ADMIN_PASS = process.env.ADMIN_PASS || "admin123";
@@ -308,13 +325,18 @@ app.post("/api/auth/register", async (req, res) => {
   if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
     return res.status(400).json({ message: "Admin account is managed by the system" });
   }
-  if (hasBlob) {
-    const exists = await blobReadUser(email);
-    if (exists) return res.status(409).json({ message: "User already exists" });
-    const rec = { email, passwordHash: hashPassword(password), name: trimmedName, isAdmin: false };
-    await blobWriteUser(rec);
-    const token = createToken(email);
-    return res.json({ token, user: { email, name: trimmedName, isAdmin: false } });
+  if (hasBlob || (await ensureBlob())) {
+    try {
+      const exists = await blobReadUser(email);
+      if (exists) return res.status(409).json({ message: "User already exists" });
+      const rec = { email, passwordHash: hashPassword(password), name: trimmedName, isAdmin: false };
+      await blobWriteUser(rec);
+      const token = createToken(email);
+      return res.json({ token, user: { email, name: trimmedName, isAdmin: false } });
+    } catch (e) {
+      console.error("Blob register error:", e?.message);
+      return res.status(500).json({ message: "Storage unavailable. Enable Vercel Blob for this project." });
+    }
   } else {
     if (users.has(email)) return res.status(409).json({ message: "User already exists" });
     const passwordHash = hashPassword(password);
@@ -331,9 +353,14 @@ app.post("/api/auth/login", async (req, res) => {
   // Admin bootstrap (always works without existing user)
   if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASS) {
     const rec = { email, passwordHash: hashPassword(password), name: "Admin", isAdmin: true };
-    if (hasBlob) {
-      await blobWriteUser(rec); // ensure user exists in Blob
-    } else {
+    try {
+      if (hasBlob || (await ensureBlob())) {
+        await blobWriteUser(rec); // ensure user exists in Blob
+      } else {
+        users.set(email, rec);
+      }
+    } catch (e) {
+      console.warn("Blob admin sync failed:", e?.message);
       users.set(email, rec);
     }
     const token = createToken(email);
@@ -342,10 +369,15 @@ app.post("/api/auth/login", async (req, res) => {
   }
   // Normal users
   let rec = null;
-  if (hasBlob) {
-    rec = await blobReadUser(email);
-  } else {
-    rec = users.get(email);
+  try {
+    if (hasBlob || (await ensureBlob())) {
+      rec = await blobReadUser(email);
+    } else {
+      rec = users.get(email);
+    }
+  } catch (e) {
+    console.error("Blob read user error:", e?.message);
+    return res.status(500).json({ message: "Storage unavailable. Enable Vercel Blob for this project." });
   }
   if (!rec || rec.passwordHash !== hashPassword(password)) return res.status(401).json({ message: "Invalid credentials" });
   const token = createToken(email);
@@ -437,6 +469,16 @@ app.delete("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, r
   if (idx === -1) return res.status(404).json({ message: "Feedback not found" });
   list.splice(idx, 1);
   return res.json({ ok: true });
+});
+
+// Simple health endpoint for Blob
+app.get("/api/health/blob", async (_req, res) => {
+  try {
+    const ok = await ensureBlob();
+    return res.json({ ok });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: e?.message || "Blob error" });
+  }
 });
 // Error handler for better diagnostics in serverless logs
 // eslint-disable-next-line no-unused-vars
