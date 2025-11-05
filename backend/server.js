@@ -9,6 +9,8 @@ dotenv.config();
 // Primary storage: MongoDB (if MONGODB_URI is set), otherwise in-memory fallback
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL || "";
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "course";
+const MONGODB_FEEDBACKS_COLLECTION = process.env.MONGODB_FEEDBACKS_COLLECTION || "feedbacks";
+const MONGODB_USERS_COLLECTION = process.env.MONGODB_USERS_COLLECTION || "users";
 let mongoClient = null;
 let mongoDb = null;
 let mongoReady = false;
@@ -104,7 +106,7 @@ async function mongoListFeedbacks(courseId) {
   const db = await getDb();
   if (!db) return null;
   const rows = await db
-    .collection("feedbacks")
+    .collection(MONGODB_FEEDBACKS_COLLECTION)
     .find({ courseId: Number(courseId) })
     .sort({ createdAt: -1 })
     .toArray();
@@ -114,7 +116,7 @@ async function mongoListFeedbacks(courseId) {
 async function mongoInsertFeedback(entry) {
   const db = await getDb();
   if (!db) return null;
-  const res = await db.collection("feedbacks").insertOne({ ...entry, createdAt: new Date() });
+  const res = await db.collection(MONGODB_FEEDBACKS_COLLECTION).insertOne({ ...entry, createdAt: new Date() });
   return { ...entry, id: String(res.insertedId) };
 }
 
@@ -122,8 +124,8 @@ async function mongoListAllFeedbacks(courseId) {
   const db = await getDb();
   if (!db) return null;
   const cursor = courseId
-    ? db.collection("feedbacks").find({ courseId: Number(courseId) }).sort({ createdAt: -1 })
-    : db.collection("feedbacks").find({}).sort({ createdAt: -1 });
+    ? db.collection(MONGODB_FEEDBACKS_COLLECTION).find({ courseId: Number(courseId) }).sort({ createdAt: -1 })
+    : db.collection(MONGODB_FEEDBACKS_COLLECTION).find({}).sort({ createdAt: -1 });
   const rows = await cursor.toArray();
   return rows.map(normalizeFeedback);
 }
@@ -139,7 +141,7 @@ async function mongoPatchFeedback(courseId, id, patch) {
   if (patch.lang !== undefined) update.lang = patch.lang ?? null;
   if (!Object.keys(update).length) return true;
   const res = await db
-    .collection("feedbacks")
+    .collection(MONGODB_FEEDBACKS_COLLECTION)
     .findOneAndUpdate({ _id: new ObjectId(id), courseId: Number(courseId) }, { $set: update }, { returnDocument: "after" });
   return normalizeFeedback(res.value);
 }
@@ -147,7 +149,7 @@ async function mongoPatchFeedback(courseId, id, patch) {
 async function mongoDeleteFeedback(courseId, id) {
   const db = await getDb();
   if (!db) return null;
-  const res = await db.collection("feedbacks").deleteOne({ _id: new ObjectId(id), courseId: Number(courseId) });
+  const res = await db.collection(MONGODB_FEEDBACKS_COLLECTION).deleteOne({ _id: new ObjectId(id), courseId: Number(courseId) });
   return res.deletedCount === 1;
 }
 
@@ -155,14 +157,14 @@ async function mongoDeleteFeedback(courseId, id) {
 async function mongoGetUser(email) {
   const db = await getDb();
   if (!db) return null;
-  return db.collection("users").findOne({ email: String(email).toLowerCase() });
+  return db.collection(MONGODB_USERS_COLLECTION).findOne({ email: String(email).toLowerCase() });
 }
 
 async function mongoUpsertUser(record) {
   const db = await getDb();
   if (!db) return null;
   const email = String(record.email).toLowerCase();
-  await db.collection("users").updateOne({ email }, { $set: { ...record, email } }, { upsert: true });
+  await db.collection(MONGODB_USERS_COLLECTION).updateOne({ email }, { $set: { ...record, email } }, { upsert: true });
   return true;
 }
 
