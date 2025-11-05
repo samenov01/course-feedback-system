@@ -15,10 +15,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@vercel/blob": "^0.23.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "mongodb": "^6.9.0",
     "nodemon": "^3.1.10"
   },
   "devDependencies": {
