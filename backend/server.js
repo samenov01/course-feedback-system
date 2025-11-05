@@ -1,16 +1,12 @@
 import express from "express";
 import cors from "cors";
-import mysql from "mysql2";
 import { put, list, del as blobDel } from "@vercel/blob";
 import dotenv from "dotenv";
 import crypto from "crypto";
 
 dotenv.config();
 
-// Storage selection: prefer Vercel Blob if available; otherwise optional MySQL; otherwise in-memory
-let db = null;
-let dbReady = false;
-const hasDbEnv = !!process.env.DB_HOST && !!process.env.DB_USER && !!process.env.DB_PASSWORD && !!process.env.DB_NAME;
+// Storage selection: use Vercel Blob when available; fallback to in-memory only (no MySQL)
 const hasBlob = !!process.env.VERCEL || !!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.VERCEL_BLOB_READ_WRITE_URL;
 
 async function initSchema() {
@@ -35,26 +31,7 @@ async function initSchema() {
   }
 }
 
-if (hasDbEnv && !hasBlob) {
-  const ssl = (process.env.DB_SSL || "").toLowerCase() === "true" ? { rejectUnauthorized: true } : undefined;
-  db = mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    ssl,
-  });
-  db.connect((err) => {
-    if (err) {
-      console.warn("MySQL not connected (optional):", err?.code || err?.message);
-    } else {
-      console.log("MySQL connected");
-      initSchema();
-    }
-  });
-} else {
-  console.log(hasBlob ? "Using Vercel Blob for storage" : "MySQL env not set; using in-memory storage");
-}
+console.log(hasBlob ? "Using Vercel Blob for storage" : "Using in-memory storage (dev fallback)");
 
 const app = express();
 app.use(cors());
@@ -109,7 +86,7 @@ const courses = [
   },
 ];
 
-// In-memory fallback store when neither Blob nor DB is available
+// In-memory fallback store when Blob is not available
 const feedbacks = {};
 let nextFeedbackId = 1;
 
@@ -249,18 +226,6 @@ app.get("/api/courses/:id/feedback", async (req, res) => {
       console.warn("Blob read failed, falling back:", e?.message);
     }
   }
-  if (dbReady) {
-    try {
-      const [rows] = await db.promise().execute(
-        `SELECT id, comment, rating, userEmail AS user, teacher, grp AS \`group\`, lang
-         FROM feedbacks WHERE courseId = ? ORDER BY created_at DESC`,
-        [id]
-      );
-      return res.json(rows);
-    } catch (e) {
-      console.warn("DB read failed, falling back to memory:", e?.message);
-    }
-  }
   return res.json(feedbacks[id] || []);
 });
 
@@ -293,29 +258,6 @@ app.post("/api/feedback", async (req, res) => {
       return res.json({ message: "Feedback received", feedback: entry });
     } catch (e) {
       console.warn("Blob write failed, trying fallback:", e?.message);
-    }
-  }
-  if (dbReady) {
-    try {
-      const [result] = await db
-        .promise()
-        .execute(
-          `INSERT INTO feedbacks (courseId, comment, rating, userEmail, teacher, grp, lang)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [courseId, comment, Number(rating), userLabel, teacher || null, group || null, lang || null]
-        );
-      const entry = {
-        id: result.insertId,
-        comment,
-        rating: Number(rating),
-        user: userLabel,
-        teacher: teacher || null,
-        group: group || null,
-        lang: lang || null,
-      };
-      return res.json({ message: "Feedback received", feedback: entry });
-    } catch (e) {
-      console.warn("DB write failed, falling back to memory:", e?.message);
     }
   }
   const list = feedbacks[courseId] || (feedbacks[courseId] = []);
@@ -406,30 +348,6 @@ app.get("/api/admin/feedbacks", adminOnly, async (req, res) => {
       console.warn("Blob admin list failed, falling back:", e?.message);
     }
   }
-  if (dbReady) {
-    try {
-      if (courseId) {
-        const [rows] = await db
-          .promise()
-          .execute(
-            `SELECT id, courseId, comment, rating, userEmail AS user, teacher, grp AS \`group\`, lang
-             FROM feedbacks WHERE courseId = ? ORDER BY created_at DESC`,
-            [courseId]
-          );
-        return res.json(rows);
-      } else {
-        const [rows] = await db
-          .promise()
-          .query(
-            `SELECT id, courseId, comment, rating, userEmail AS user, teacher, grp AS \`group\`, lang
-             FROM feedbacks ORDER BY created_at DESC`
-          );
-        return res.json(rows);
-      }
-    } catch (e) {
-      console.warn("DB admin list failed, using memory:", e?.message);
-    }
-  }
   if (courseId) return res.json(feedbacks[courseId] || []);
   const all = [];
   for (const [cid, list] of Object.entries(feedbacks)) {
@@ -450,31 +368,6 @@ app.patch("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, re
       console.warn("Blob patch failed, falling back:", e?.message);
     }
   }
-  if (dbReady) {
-    try {
-      const fields = [];
-      const params = [];
-      if (patch.comment !== undefined) { fields.push("comment = ?"); params.push(patch.comment); }
-      if (patch.rating !== undefined)  { fields.push("rating = ?");  params.push(Number(patch.rating)); }
-      if (patch.teacher !== undefined) { fields.push("teacher = ?"); params.push(patch.teacher || null); }
-      if (patch.group !== undefined)   { fields.push("grp = ?");     params.push(patch.group || null); }
-      if (patch.lang !== undefined)    { fields.push("lang = ?");    params.push(patch.lang || null); }
-      if (!fields.length) return res.json({ ok: true });
-      params.push(id, courseId);
-      await db
-        .promise()
-        .execute(`UPDATE feedbacks SET ${fields.join(", ")} WHERE id = ? AND courseId = ?`, params);
-      const [rows] = await db
-        .promise()
-        .execute(
-          `SELECT id, courseId, comment, rating, userEmail AS user, teacher, grp AS \`group\`, lang FROM feedbacks WHERE id = ? AND courseId = ?`,
-          [id, courseId]
-        );
-      return res.json(rows[0] || { ok: true });
-    } catch (e) {
-      console.warn("DB admin patch failed, using memory:", e?.message);
-    }
-  }
   const list = feedbacks[courseId];
   if (!list) return res.status(404).json({ message: "Course or feedback not found" });
   const idx = list.findIndex((f) => String(f.id) === String(id));
@@ -493,14 +386,6 @@ app.delete("/api/admin/courses/:courseId/feedback/:id", adminOnly, async (req, r
       return res.json({ ok: true });
     } catch (e) {
       console.warn("Blob delete failed, falling back:", e?.message);
-    }
-  }
-  if (dbReady) {
-    try {
-      await db.promise().execute(`DELETE FROM feedbacks WHERE id = ? AND courseId = ?`, [id, courseId]);
-      return res.json({ ok: true });
-    } catch (e) {
-      console.warn("DB admin delete failed, using memory:", e?.message);
     }
   }
   const list = feedbacks[courseId];
