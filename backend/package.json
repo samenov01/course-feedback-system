@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.js",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "start": "nodemon server.js"
@@ -12,10 +15,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@vercel/blob": "^0.23.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "mysql2": "^3.15.1",
     "nodemon": "^3.1.10"
   },
   "devDependencies": {

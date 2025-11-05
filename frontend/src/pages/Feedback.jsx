@@ -36,11 +36,11 @@ export default function Feedback({ course, onBack, token }) {
         <div className="w-full max-w-2xl card p-8 rounded-[12px] ani-fade-up">
           {!token ? (
             <div className="text-center">
-              <h2 className="text-xl font-semibold text-white mb-2">Оставлять отзывы могут только зарегистрированные пользователи</h2>
-              <p className="text-white/70 mb-4">Пожалуйста, войдите или зарегистрируйтесь</p>
+              <h2 className="text-xl font-semibold text-[#101010] mb-2">Оставлять отзывы могут только зарегистрированные пользователи</h2>
+              <p className="text-[#101010]/70 mb-4">Пожалуйста, войдите или зарегистрируйтесь</p>
               <div className="flex justify-center gap-3">
-                <button className="bg-white/10 text-white px-4 py-2 rounded hover:bg-white/20" onClick={() => window.__setPage?.("login")}>Login</button>
-                <button className="border border-white/20 text-white/80 hover:text-white hover:border-white/40 px-4 py-2 rounded" onClick={() => window.__setPage?.("register")}>Register</button>
+                <button className="bg-[#101010] text-white px-4 py-2 rounded hover:opacity-90" onClick={() => window.__setPage?.("login")}>Login</button>
+                <button className="border border-[#101010]/30 text-[#101010] hover:border-[#101010] px-4 py-2 rounded" onClick={() => window.__setPage?.("register")}>Register</button>
               </div>
             </div>
           ) : (
