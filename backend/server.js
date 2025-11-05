@@ -28,7 +28,11 @@ async function getDb() {
   return mongoDb;
 }
 
-console.log(MONGODB_URI ? "Using MongoDB storage" : "Using in-memory storage (dev fallback)");
+console.log(
+  MONGODB_URI
+    ? `Using MongoDB storage (db="${MONGODB_DB_NAME}")`
+    : "Using in-memory storage (dev fallback)"
+);
 
 const app = express();
 app.use(cors());
