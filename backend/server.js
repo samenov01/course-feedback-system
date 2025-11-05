@@ -8,7 +8,7 @@ dotenv.config();
 
 // Primary storage: MongoDB (if MONGODB_URI is set), otherwise in-memory fallback
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL || "";
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "course_feedback";
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "course";
 let mongoClient = null;
 let mongoDb = null;
 let mongoReady = false;
