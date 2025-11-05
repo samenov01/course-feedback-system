@@ -304,34 +304,35 @@ app.post("/api/auth/register", async (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body || {};
+  const lowerEmail = String(email || "").toLowerCase();
   if (!email || !password) return res.status(400).json({ message: "Email and password required" });
   // Admin bootstrap (always works without existing user)
-  if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASS) {
-    const rec = { email, passwordHash: hashPassword(password), name: "Admin", isAdmin: true };
+  if (lowerEmail === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASS) {
+    const rec = { email: lowerEmail, passwordHash: hashPassword(password), name: "Admin", isAdmin: true };
     try {
       const db = await getDb();
-      if (db) await mongoUpsertUser(rec); else users.set(email, rec);
+      if (db) await mongoUpsertUser(rec); else users.set(lowerEmail, rec);
     } catch (e) {
       console.warn("Admin sync failed:", e?.message);
-      users.set(email, rec);
+      users.set(lowerEmail, rec);
     }
-    const token = createToken(email);
-    const displayName = rec.name || email.split("@")[0] || email;
-    return res.json({ token, user: { email, name: displayName, isAdmin: true } });
+    const token = createToken(lowerEmail);
+    const displayName = rec.name || lowerEmail.split("@")[0] || lowerEmail;
+    return res.json({ token, user: { email: lowerEmail, name: displayName, isAdmin: true } });
   }
   // Normal users
   let rec = null;
   try {
     const db = await getDb();
-    rec = db ? await mongoGetUser(email) : users.get(email);
+    rec = db ? await mongoGetUser(lowerEmail) : users.get(lowerEmail);
   } catch (e) {
     console.error("Mongo read user error:", e?.message);
     return res.status(500).json({ message: "Login failed" });
   }
   if (!rec || rec.passwordHash !== hashPassword(password)) return res.status(401).json({ message: "Invalid credentials" });
-  const token = createToken(email);
-  const displayName = rec.name || email.split("@")[0] || email;
-  return res.json({ token, user: { email, name: displayName, isAdmin: !!rec.isAdmin } });
+  const token = createToken(lowerEmail);
+  const displayName = rec.name || lowerEmail.split("@")[0] || lowerEmail;
+  return res.json({ token, user: { email: lowerEmail, name: displayName, isAdmin: !!rec.isAdmin } });
 });
 
 app.get("/api/me", (req, res) => {
