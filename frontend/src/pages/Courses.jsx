@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import PosterLayout from "../components/PosterLayout";
 import StarRating from "../components/StarRating";
+import { api } from "../lib/api";
 
 export default function Courses({ onSelectCourse }) {
   const [courses, setCourses] = useState([]);
@@ -12,9 +13,9 @@ export default function Courses({ onSelectCourse }) {
   // no sorting needed for this layout
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/api/courses`)
-      .then((res) => res.json())
-      .then((data) => setCourses(data))
+    api
+      .get("/api/courses")
+      .then(setCourses)
       .catch((err) => console.error("Error:", err));
   }, []);
 
@@ -22,8 +23,8 @@ export default function Courses({ onSelectCourse }) {
     setSelected(id);
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/courses/${id}/feedback`);
-      setFeedbacks(await res.json());
+      const list = await api.get(`/api/courses/${id}/feedback`);
+      setFeedbacks(list);
     } catch {
       setFeedbacks([]);
     } finally {

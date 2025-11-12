@@ -9,23 +9,23 @@ dotenv.config();
 // Primary storage: MongoDB (if MONGODB_URI is set), otherwise in-memory fallback
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL || "";
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "course";
+const MONGODB_FEEDBACKS_DB_NAME = process.env.MONGODB_FEEDBACKS_DB_NAME || MONGODB_DB_NAME;
+const MONGODB_USERS_DB_NAME = process.env.MONGODB_USERS_DB_NAME || MONGODB_DB_NAME;
+const MONGODB_RESETS_DB_NAME = process.env.MONGODB_RESETS_DB_NAME || MONGODB_DB_NAME;
 const MONGODB_FEEDBACKS_COLLECTION = process.env.MONGODB_FEEDBACKS_COLLECTION || "feedbacks";
 const MONGODB_USERS_COLLECTION = process.env.MONGODB_USERS_COLLECTION || "users";
 let mongoClient = null;
-let mongoDb = null;
 let mongoReady = false;
-async function getDb() {
-  if (mongoReady && mongoDb) return mongoDb;
+async function getDb(name = MONGODB_DB_NAME) {
   if (!MONGODB_URI) return null;
   if (!mongoClient) {
     mongoClient = new MongoClient(MONGODB_URI, { maxPoolSize: 5 });
   }
   if (!mongoReady) {
     await mongoClient.connect();
-    mongoDb = mongoClient.db(MONGODB_DB_NAME);
     mongoReady = true;
   }
-  return mongoDb;
+  return mongoClient.db(name);
 }
 
 console.log(
@@ -38,7 +38,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Simple in-memory stores (fallbacks when Blob недоступен)
+// Simple in-memory stores (fallback only; not used on serverless when Mongo is present)
 const users = new Map(); // email -> { email, passwordHash, name, isAdmin }
 const sessions = new Map(); // token -> email
 const resetTokens = new Map(); // token -> email
@@ -107,7 +107,7 @@ function normalizeFeedback(doc) {
 }
 
 async function mongoListFeedbacks(courseId) {
-  const db = await getDb();
+  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
   if (!db) return null;
   const rows = await db
     .collection(MONGODB_FEEDBACKS_COLLECTION)
@@ -118,14 +118,14 @@ async function mongoListFeedbacks(courseId) {
 }
 
 async function mongoInsertFeedback(entry) {
-  const db = await getDb();
+  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
   if (!db) return null;
   const res = await db.collection(MONGODB_FEEDBACKS_COLLECTION).insertOne({ ...entry, createdAt: new Date() });
   return { ...entry, id: String(res.insertedId) };
 }
 
 async function mongoListAllFeedbacks(courseId) {
-  const db = await getDb();
+  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
   if (!db) return null;
   const cursor = courseId
     ? db.collection(MONGODB_FEEDBACKS_COLLECTION).find({ courseId: Number(courseId) }).sort({ createdAt: -1 })
@@ -135,7 +135,7 @@ async function mongoListAllFeedbacks(courseId) {
 }
 
 async function mongoPatchFeedback(courseId, id, patch) {
-  const db = await getDb();
+  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
   if (!db) return null;
   const update = {};
   if (patch.comment !== undefined) update.comment = patch.comment;
@@ -151,7 +151,7 @@ async function mongoPatchFeedback(courseId, id, patch) {
 }
 
 async function mongoDeleteFeedback(courseId, id) {
-  const db = await getDb();
+  const db = await getDb(MONGODB_USERS_DB_NAME);
   if (!db) return null;
   const res = await db.collection(MONGODB_FEEDBACKS_COLLECTION).deleteOne({ _id: new ObjectId(id), courseId: Number(courseId) });
   return res.deletedCount === 1;
@@ -159,7 +159,7 @@ async function mongoDeleteFeedback(courseId, id) {
 
 // Users in Mongo
 async function mongoGetUser(email) {
-  const db = await getDb();
+  const db = await getDb(MONGODB_USERS_DB_NAME);
   if (!db) return null;
   return db.collection(MONGODB_USERS_COLLECTION).findOne({ email: String(email).toLowerCase() });
 }
@@ -169,6 +169,41 @@ async function mongoUpsertUser(record) {
   if (!db) return null;
   const email = String(record.email).toLowerCase();
   await db.collection(MONGODB_USERS_COLLECTION).updateOne({ email }, { $set: { ...record, email } }, { upsert: true });
+  return true;
+}
+
+// Password reset tokens in Mongo (serverless-safe)
+const MONGODB_RESETS_COLLECTION = process.env.MONGODB_RESETS_COLLECTION || "password_resets";
+
+async function ensureResetTTLIndex() {
+  const db = await getDb(MONGODB_RESETS_DB_NAME);
+  if (!db) return;
+  try {
+    await db.collection(MONGODB_RESETS_COLLECTION).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
+  } catch {}
+}
+
+async function mongoCreateResetToken(email) {
+  const db = await getDb(MONGODB_RESETS_DB_NAME);
+  if (!db) return null;
+  await ensureResetTTLIndex();
+  const token = crypto.randomBytes(16).toString("hex");
+  await db.collection(MONGODB_RESETS_COLLECTION).insertOne({ email, token, createdAt: new Date() });
+  return token;
+}
+
+async function mongoConsumeResetToken(token) {
+  const db = await getDb(MONGODB_USERS_DB_NAME);
+  if (!db) return null;
+  const res = await db.collection(MONGODB_RESETS_COLLECTION).findOneAndDelete({ token });
+  return res?.value?.email || null;
+}
+
+async function mongoUpdatePassword(email, newPasswordHash) {
+  const db = await getDb();
+  if (!db) return null;
+  const lower = String(email).toLowerCase();
+  await db.collection(MONGODB_USERS_COLLECTION).updateOne({ email: lower }, { $set: { passwordHash: newPasswordHash } });
   return true;
 }
 
@@ -204,9 +239,10 @@ async function authMiddleware(req, _res, next) {
   const email = verifyToken(token) || sessions.get(token) || null;
   if (email) {
     let record = users.get(email);
-    if (!record && hasBlob) {
-      try { record = await blobReadUser(email); } catch {}
-    }
+    // If using MongoDB, fetch the user record to resolve name/isAdmin
+    try {
+      if (!record) record = await mongoGetUser(email);
+    } catch {}
     req.user = {
       email,
       name: record?.name || null,
@@ -417,26 +453,58 @@ app.use((err, req, res, next) => {
 app.post("/api/auth/forgot-password", (req, res) => {
   const { email } = req.body || {};
   if (!email) return res.status(400).json({ message: "Email required" });
-  if (!users.has(email)) {
-    // respond with generic message to avoid user enumeration
-    return res.json({ message: "If the email exists, a reset token was generated" });
-  }
-  const token = crypto.randomBytes(16).toString("hex");
-  resetTokens.set(token, email);
-  // For this dev setup, return the token so you can use it directly
-  return res.json({ message: "Reset token generated", token });
+  (async () => {
+    try {
+      const db = await getDb();
+      const lower = String(email).toLowerCase();
+      let exists = false;
+      if (db) {
+        exists = !!(await mongoGetUser(lower));
+      } else {
+        exists = users.has(lower);
+      }
+      if (!exists) {
+        // respond with generic message to avoid user enumeration
+        return res.json({ message: "If the email exists, a reset token was generated" });
+      }
+      if (db) {
+        const token = await mongoCreateResetToken(lower);
+        return res.json({ message: "Reset token generated", token });
+      }
+      const token = crypto.randomBytes(16).toString("hex");
+      resetTokens.set(token, lower);
+      return res.json({ message: "Reset token generated", token });
+    } catch (e) {
+      console.error("Forgot password error:", e?.message);
+      return res.status(500).json({ message: "Error generating reset token" });
+    }
+  })();
 });
 
 app.post("/api/auth/reset-password", (req, res) => {
   const { token, newPassword } = req.body || {};
   if (!token || !newPassword) return res.status(400).json({ message: "Token and new password required" });
-  const email = resetTokens.get(token);
-  if (!email || !users.has(email)) return res.status(400).json({ message: "Invalid or expired token" });
-  const rec = users.get(email);
-  rec.passwordHash = hashPassword(newPassword);
-  users.set(email, rec);
-  resetTokens.delete(token);
-  return res.json({ message: "Password updated" });
+  (async () => {
+    try {
+      const db = await getDb();
+      if (db) {
+        const email = await mongoConsumeResetToken(token);
+        if (!email) return res.status(400).json({ message: "Invalid or expired token" });
+        await mongoUpdatePassword(email, hashPassword(newPassword));
+        return res.json({ message: "Password updated" });
+      }
+      const email = resetTokens.get(token);
+      if (!email || !users.has(email)) return res.status(400).json({ message: "Invalid or expired token" });
+      const rec = users.get(email);
+      rec.passwordHash = hashPassword(newPassword);
+      users.set(email, rec);
+      resetTokens.delete(token);
+      return res.json({ message: "Password updated" });
+    } catch (e) {
+      console.error("Reset password error:", e?.message);
+      return res.status(500).json({ message: "Reset failed" });
+    }
+  })();
 });
 
 const PORT = process.env.PORT || 5000;
