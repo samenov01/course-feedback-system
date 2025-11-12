@@ -1,24 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PosterLayout from "../components/PosterLayout";
 import StarRating from "../components/StarRating";
-
-const BASE = import.meta.env.VITE_API_URL;
-
-async function adminGet(path, token) {
-  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-async function adminPatch(path, body, token) {
-  const res = await fetch(`${BASE}${path}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-async function adminDelete(path, token) {
-  const res = await fetch(`${BASE}${path}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
+import { api } from "../lib/api";
 
 export default function Admin({ token, isAdmin, goLogin }) {
   
@@ -29,14 +12,14 @@ export default function Admin({ token, isAdmin, goLogin }) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch(`${BASE}/api/courses`).then(r=>r.json()).then(setCourses).catch(()=>{});
+    api.get(`/api/courses`).then(setCourses).catch(()=>{});
   }, []);
 
   const loadFeedbacks = async (id) => {
     setCourseId(id);
     setLoading(true);
     try {
-      const list = await adminGet(`/api/admin/feedbacks?courseId=${id}`, token);
+      const list = await api.get(`/api/admin/feedbacks?courseId=${id}`, token);
       setFeedbacks(list);
     } catch {
       setFeedbacks([]);
@@ -105,7 +88,7 @@ function EditableCard({ f, idx, courseId, token, onChanged }) {
   const save = async () => {
     setSaving(true);
     try {
-      await adminPatch(`/api/admin/courses/${courseId}/feedback/${f.id}`, { comment, rating }, token);
+      await api.patch(`/api/admin/courses/${courseId}/feedback/${f.id}`, { comment, rating }, token);
       setEditing(false);
       onChanged?.();
     } finally { setSaving(false); }
@@ -113,7 +96,7 @@ function EditableCard({ f, idx, courseId, token, onChanged }) {
 
   const remove = async () => {
     if (!confirm("Delete this feedback?")) return;
-    await adminDelete(`/api/admin/courses/${courseId}/feedback/${f.id}`, token);
+    await api.del(`/api/admin/courses/${courseId}/feedback/${f.id}`, token);
     onChanged?.();
   };
 
