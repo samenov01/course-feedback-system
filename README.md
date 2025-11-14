@@ -27,6 +27,9 @@ Two projects (recommended):
 1) Backend – set project root to `course-feedback-system/backend` (Node 18+). No build needed; Vercel will use `api/[...route].js`.
 2) Frontend – set project root to `course-feedback-system/frontend`. Build with Vite; expose `VITE_API_URL` pointing to the backend URL.
 
+Deploying from the repo root?
+- A top-level `api/[...route].js` re-exports the backend Express app so `/api/*` works even if the project root isn’t `backend/`. This prevents 404 errors when Vercel deploys the whole repo as one project.
+
 Local dev:
 - Backend: `cd course-feedback-system/backend && npm i && npm run start` (uses port 5000 by default)
 - Frontend: `cd course-feedback-system/frontend && npm i && npm run dev`
