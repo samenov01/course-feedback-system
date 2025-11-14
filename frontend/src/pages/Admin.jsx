@@ -43,9 +43,14 @@ export default function Admin({ token, isAdmin, goLogin }) {
       <PosterLayout titleLarge="ADMIN" rightLabel="ACCESS">
         <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6">
           <div className="card ani-fade-up w-full max-w-md p-8 text-center">
-            <h1 className="text-2xl font-bold text-white mb-2">Admin panel</h1>
-            <p className="text-white/70 mb-4">Войдите как администратор через страницу Login</p>
-            <button className="bg-white/10 text-white px-4 py-2 rounded hover:bg-white/20" onClick={() => goLogin?.()}>Перейти к Login</button>
+            <h1 className="text-2xl font-bold text-[#101010] mb-2">Admin panel</h1>
+            <p className="text-[#101010]/70 mb-4">Войдите как администратор через страницу Login</p>
+            <button
+              className="px-4 py-2 rounded border border-[#101010] text-[#101010] hover:bg-[#101010] hover:text-white"
+              onClick={() => goLogin?.()}
+            >
+              Перейти к Login
+            </button>
           </div>
         </div>
       </PosterLayout>
@@ -107,12 +112,12 @@ function EditableCard({ f, idx, courseId, token, onChanged }) {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-dark mb-1">{f.comment}</p>
-              <p className="text-sm text-white/70">Rating: {f.rating}/10 {f.user ? `(by ${f.user})` : ''}</p>
-            </div>
-            <div className="flex gap-2">
-              <button className="text-sm text-white/80" onClick={()=>setEditing(true)}>Edit</button>
+              <p className="text-sm text-[#101010]/70">Rating: {f.rating}/10 {f.user ? `(by ${f.user})` : ''}</p>
+          </div>
+          <div className="flex gap-2">
+              <button className="text-sm text-[#101010]/80" onClick={()=>setEditing(true)}>Edit</button>
               <button className="text-sm text-red-600" onClick={remove}>Delete</button>
-            </div>
+          </div>
           </div>
           {(f.teacher || f.group || f.lang) && (
             <p className="text-xs text-dark/60 mt-1">
@@ -125,7 +130,7 @@ function EditableCard({ f, idx, courseId, token, onChanged }) {
       ) : (
         <div className="space-y-3">
           <label className="block text-sm text-dark/70">Comment</label>
-          <textarea className="w-full border border-white/20 bg-[#0f1014] text-white rounded p-2 h-24" value={comment} onChange={(e)=>setComment(e.target.value)} />
+          <textarea className="w-full border border-[#d1d5db] bg-white text-[#101010] rounded p-2 h-24" value={comment} onChange={(e)=>setComment(e.target.value)} />
           <label className="block text-sm text-dark/70">Rating</label>
           <StarRating value={rating} onChange={setRating} max={10} />
           <div className="flex gap-2 pt-2">
