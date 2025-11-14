@@ -8,7 +8,7 @@ dotenv.config();
 
 // Primary storage: MongoDB (if MONGODB_URI is set), otherwise in-memory fallback
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL || "";
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "course";
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "feedbacks";
 const MONGODB_FEEDBACKS_DB_NAME = process.env.MONGODB_FEEDBACKS_DB_NAME || MONGODB_DB_NAME;
 const MONGODB_USERS_DB_NAME = process.env.MONGODB_USERS_DB_NAME || MONGODB_DB_NAME;
 const MONGODB_RESETS_DB_NAME = process.env.MONGODB_RESETS_DB_NAME || MONGODB_DB_NAME;
@@ -26,6 +26,15 @@ async function getDb(name = MONGODB_DB_NAME) {
     mongoReady = true;
   }
   return mongoClient.db(name);
+}
+
+// For tests: allow closing the Mongo client to avoid open handles
+export async function _testCloseMongo() {
+  try {
+    if (mongoClient) await mongoClient.close();
+  } catch {}
+  mongoClient = null;
+  mongoReady = false;
 }
 
 console.log(
@@ -151,7 +160,7 @@ async function mongoPatchFeedback(courseId, id, patch) {
 }
 
 async function mongoDeleteFeedback(courseId, id) {
-  const db = await getDb(MONGODB_USERS_DB_NAME);
+  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
   if (!db) return null;
   const res = await db.collection(MONGODB_FEEDBACKS_COLLECTION).deleteOne({ _id: new ObjectId(id), courseId: Number(courseId) });
   return res.deletedCount === 1;
@@ -165,7 +174,7 @@ async function mongoGetUser(email) {
 }
 
 async function mongoUpsertUser(record) {
-  const db = await getDb();
+  const db = await getDb(MONGODB_USERS_DB_NAME);
   if (!db) return null;
   const email = String(record.email).toLowerCase();
   await db.collection(MONGODB_USERS_COLLECTION).updateOne({ email }, { $set: { ...record, email } }, { upsert: true });
@@ -193,14 +202,14 @@ async function mongoCreateResetToken(email) {
 }
 
 async function mongoConsumeResetToken(token) {
-  const db = await getDb(MONGODB_USERS_DB_NAME);
+  const db = await getDb(MONGODB_RESETS_DB_NAME);
   if (!db) return null;
   const res = await db.collection(MONGODB_RESETS_COLLECTION).findOneAndDelete({ token });
   return res?.value?.email || null;
 }
 
 async function mongoUpdatePassword(email, newPasswordHash) {
-  const db = await getDb();
+  const db = await getDb(MONGODB_USERS_DB_NAME);
   if (!db) return null;
   const lower = String(email).toLowerCase();
   await db.collection(MONGODB_USERS_COLLECTION).updateOne({ email: lower }, { $set: { passwordHash: newPasswordHash } });
@@ -217,17 +226,18 @@ function hashPassword(password) {
 
 function createToken(email) {
   const nonce = crypto.randomBytes(12).toString("hex");
-  const data = `${email}.${Date.now()}.${nonce}`;
+  // Use '|' as a safe delimiter since emails can contain '.'
+  const data = `${email}|${Date.now()}|${nonce}`;
   const sig = crypto.createHmac("sha256", APP_SECRET).update(data).digest("hex");
-  return `${data}.${sig}`;
+  return `${data}|${sig}`;
 }
 
 function verifyToken(token) {
   if (!token) return null;
-  const parts = token.split(".");
-  if (parts.length < 4) return null;
-  const [email, ts, nonce, sig] = [parts[0], parts[1], parts[2], parts[3]];
-  const data = `${email}.${ts}.${nonce}`;
+  const parts = token.split("|");
+  if (parts.length !== 4) return null;
+  const [email, ts, nonce, sig] = parts;
+  const data = `${email}|${ts}|${nonce}`;
   const expected = crypto.createHmac("sha256", APP_SECRET).update(data).digest("hex");
   if (sig !== expected) return null;
   return email;
