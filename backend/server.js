@@ -1,41 +1,23 @@
 import express from "express";
 import cors from "cors";
-import { MongoClient, ObjectId } from "mongodb";
 import dotenv from "dotenv";
 import crypto from "crypto";
+import { _testCloseMongo, getDb, mongoConfig } from "./db/client.js";
+import {
+  mongoDeleteFeedback,
+  mongoInsertFeedback,
+  mongoListAllFeedbacks,
+  mongoListFeedbacks,
+  mongoPatchFeedback,
+} from "./db/feedbacks.js";
+import { mongoGetUser, mongoUpdatePassword, mongoUpsertUser } from "./db/users.js";
+import { mongoConsumeResetToken, mongoCreateResetToken } from "./db/resets.js";
+
+export { _testCloseMongo } from "./db/client.js";
 
 dotenv.config();
 
-// Primary storage: MongoDB (if MONGODB_URI is set), otherwise in-memory fallback
-const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL || "";
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "feedbacks";
-const MONGODB_FEEDBACKS_DB_NAME = process.env.MONGODB_FEEDBACKS_DB_NAME || MONGODB_DB_NAME;
-const MONGODB_USERS_DB_NAME = process.env.MONGODB_USERS_DB_NAME || MONGODB_DB_NAME;
-const MONGODB_RESETS_DB_NAME = process.env.MONGODB_RESETS_DB_NAME || MONGODB_DB_NAME;
-const MONGODB_FEEDBACKS_COLLECTION = process.env.MONGODB_FEEDBACKS_COLLECTION || "feedbacks";
-const MONGODB_USERS_COLLECTION = process.env.MONGODB_USERS_COLLECTION || "users";
-let mongoClient = null;
-let mongoReady = false;
-async function getDb(name = MONGODB_DB_NAME) {
-  if (!MONGODB_URI) return null;
-  if (!mongoClient) {
-    mongoClient = new MongoClient(MONGODB_URI, { maxPoolSize: 5 });
-  }
-  if (!mongoReady) {
-    await mongoClient.connect();
-    mongoReady = true;
-  }
-  return mongoClient.db(name);
-}
-
-// For tests: allow closing the Mongo client to avoid open handles
-export async function _testCloseMongo() {
-  try {
-    if (mongoClient) await mongoClient.close();
-  } catch {}
-  mongoClient = null;
-  mongoReady = false;
-}
+const { MONGODB_URI, MONGODB_DB_NAME } = mongoConfig;
 
 console.log(
   MONGODB_URI
@@ -99,122 +81,6 @@ const courses = [
 // In-memory fallback store when Mongo is not available
 const feedbacks = {};
 let nextFeedbackId = 1;
-
-// ----- Mongo helpers -----
-function normalizeFeedback(doc) {
-  if (!doc) return null;
-  return {
-    id: String(doc._id || doc.id),
-    courseId: Number(doc.courseId),
-    comment: doc.comment,
-    rating: Number(doc.rating),
-    user: doc.user,
-    teacher: doc.teacher ?? null,
-    group: doc.group ?? null,
-    lang: doc.lang ?? null,
-  };
-}
-
-async function mongoListFeedbacks(courseId) {
-  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
-  if (!db) return null;
-  const rows = await db
-    .collection(MONGODB_FEEDBACKS_COLLECTION)
-    .find({ courseId: Number(courseId) })
-    .sort({ createdAt: -1 })
-    .toArray();
-  return rows.map(normalizeFeedback);
-}
-
-async function mongoInsertFeedback(entry) {
-  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
-  if (!db) return null;
-  const res = await db.collection(MONGODB_FEEDBACKS_COLLECTION).insertOne({ ...entry, createdAt: new Date() });
-  return { ...entry, id: String(res.insertedId) };
-}
-
-async function mongoListAllFeedbacks(courseId) {
-  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
-  if (!db) return null;
-  const cursor = courseId
-    ? db.collection(MONGODB_FEEDBACKS_COLLECTION).find({ courseId: Number(courseId) }).sort({ createdAt: -1 })
-    : db.collection(MONGODB_FEEDBACKS_COLLECTION).find({}).sort({ createdAt: -1 });
-  const rows = await cursor.toArray();
-  return rows.map(normalizeFeedback);
-}
-
-async function mongoPatchFeedback(courseId, id, patch) {
-  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
-  if (!db) return null;
-  const update = {};
-  if (patch.comment !== undefined) update.comment = patch.comment;
-  if (patch.rating !== undefined) update.rating = Number(patch.rating);
-  if (patch.teacher !== undefined) update.teacher = patch.teacher ?? null;
-  if (patch.group !== undefined) update.group = patch.group ?? null;
-  if (patch.lang !== undefined) update.lang = patch.lang ?? null;
-  if (!Object.keys(update).length) return true;
-  const res = await db
-    .collection(MONGODB_FEEDBACKS_COLLECTION)
-    .findOneAndUpdate({ _id: new ObjectId(id), courseId: Number(courseId) }, { $set: update }, { returnDocument: "after" });
-  return normalizeFeedback(res.value);
-}
-
-async function mongoDeleteFeedback(courseId, id) {
-  const db = await getDb(MONGODB_FEEDBACKS_DB_NAME);
-  if (!db) return null;
-  const res = await db.collection(MONGODB_FEEDBACKS_COLLECTION).deleteOne({ _id: new ObjectId(id), courseId: Number(courseId) });
-  return res.deletedCount === 1;
-}
-
-// Users in Mongo
-async function mongoGetUser(email) {
-  const db = await getDb(MONGODB_USERS_DB_NAME);
-  if (!db) return null;
-  return db.collection(MONGODB_USERS_COLLECTION).findOne({ email: String(email).toLowerCase() });
-}
-
-async function mongoUpsertUser(record) {
-  const db = await getDb(MONGODB_USERS_DB_NAME);
-  if (!db) return null;
-  const email = String(record.email).toLowerCase();
-  await db.collection(MONGODB_USERS_COLLECTION).updateOne({ email }, { $set: { ...record, email } }, { upsert: true });
-  return true;
-}
-
-// Password reset tokens in Mongo (serverless-safe)
-const MONGODB_RESETS_COLLECTION = process.env.MONGODB_RESETS_COLLECTION || "password_resets";
-
-async function ensureResetTTLIndex() {
-  const db = await getDb(MONGODB_RESETS_DB_NAME);
-  if (!db) return;
-  try {
-    await db.collection(MONGODB_RESETS_COLLECTION).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 });
-  } catch {}
-}
-
-async function mongoCreateResetToken(email) {
-  const db = await getDb(MONGODB_RESETS_DB_NAME);
-  if (!db) return null;
-  await ensureResetTTLIndex();
-  const token = crypto.randomBytes(16).toString("hex");
-  await db.collection(MONGODB_RESETS_COLLECTION).insertOne({ email, token, createdAt: new Date() });
-  return token;
-}
-
-async function mongoConsumeResetToken(token) {
-  const db = await getDb(MONGODB_RESETS_DB_NAME);
-  if (!db) return null;
-  const res = await db.collection(MONGODB_RESETS_COLLECTION).findOneAndDelete({ token });
-  return res?.value?.email || null;
-}
-
-async function mongoUpdatePassword(email, newPasswordHash) {
-  const db = await getDb(MONGODB_USERS_DB_NAME);
-  if (!db) return null;
-  const lower = String(email).toLowerCase();
-  await db.collection(MONGODB_USERS_COLLECTION).updateOne({ email: lower }, { $set: { passwordHash: newPasswordHash } });
-  return true;
-}
 
 const APP_SECRET = process.env.APP_SECRET || "dev-secret";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@yu.edu.kz";
