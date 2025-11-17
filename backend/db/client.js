@@ -1,4 +1,8 @@
 import { MongoClient } from "mongodb";
+import dotenv from "dotenv";
+
+// Load environment variables for both server and serverless contexts
+dotenv.config();
 
 // Mongo connection/collection configuration
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL || "";
