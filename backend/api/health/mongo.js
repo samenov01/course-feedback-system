@@ -1,5 +1,5 @@
 // Dedicated backend-only Mongo health endpoint for serverless (Vercel) when deploying /backend.
-import { getDb } from "../db/client.js";
+import { getDb } from "../../db/client.js";
 
 export default async function handler(_req, res) {
   try {
