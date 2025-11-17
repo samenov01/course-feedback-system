@@ -1,5 +1,6 @@
 // If VITE_API_URL is not set, use same-origin ("/api" paths)
-const BASE_URL = import.meta.env.VITE_API_URL || "";
+const RAW_BASE = import.meta.env.VITE_API_URL || "";
+const BASE_URL = RAW_BASE ? RAW_BASE.replace(/\/+$/, "") : "";
 
 function authHeader(token) {
   return token ? { Authorization: `Bearer ${token}` } : {};
